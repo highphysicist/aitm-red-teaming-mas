@@ -9,24 +9,24 @@ class AttackLogger:
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
 
-    def log_interception(self, sender, receiver, original_msg, poisoned_msg, plan=""):
+    def log_event(self, sender, receiver, original_msg, poisoned_msg, plan=""):
         """
-        Captures the AiTM transformation process.
+        Records interception events.
+        Matches the call: logger.log_event(sender, receiver, original, poisoned, plan)
         """
         event = {
             "timestamp": datetime.now().isoformat(),
-            "topology_context": f"{sender}_to_{receiver}",
-            "original_content": original_msg,
-            "adversary_plan": plan,
-            "poisoned_content": poisoned_msg,
-            "was_modified": original_msg.strip() != poisoned_msg.strip()
+            "sender": sender,
+            "receiver": receiver,
+            "original": original_msg,
+            "poisoned": poisoned_msg,
+            "plan": plan,
+            "was_modified": str(original_msg).strip() != str(poisoned_msg).strip()
         }
         self.events.append(event)
-        print(f"DEBUG: [Logger] Intercepted {sender} -> {receiver} | Modified: {event['was_modified']}")
+        print(f"DEBUG: [Logger] Intercepted {sender} -> {receiver}")
 
     def save_session(self, topology_name):
-        """Saves the current topology run to a JSON file."""
         filename = f"{self.log_dir}/{topology_name.lower()}_run.json"
         with open(filename, "w") as f:
             json.dump(self.events, f, indent=4)
-        print(f"SUCCESS: Logs saved to {filename}")
