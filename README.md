@@ -3,6 +3,8 @@ Implementation of https://arxiv.org/abs/2502.14847 with configurable and flexibl
 
 Includes some imlementation of all of the 4 autogen topologies
 
+To Run in Colab, select A100 GPU (Requires 40 GB of GPU RAM), clone the repository, pip install its requirements and copy the contents of the colab run file into a cell. Run it and logs will get stored locally, looking similar to the logs file stored in the repo.
+
 Best-effort one-to-one mapping of the elements/notation/entities referred to for AiTM in the paper vs. this Project: -
 
 ## 📝 AiTM Framework Mapping (Code-to-Paper)
