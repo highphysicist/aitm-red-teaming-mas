@@ -1,24 +1,32 @@
 import json
+import os
 from datetime import datetime
 
 class AttackLogger:
-    def __init__(self, log_file="logs/attack_trace.json"):
+    def __init__(self, log_dir="logs"):
         self.events = []
-        self.log_file = log_file
+        self.log_dir = log_dir
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
 
-    def log_event(self, src, dst, original, modified):
-        """Records a single interception event with metadata."""
+    def log_interception(self, sender, receiver, original_msg, poisoned_msg, plan=""):
+        """
+        Captures the AiTM transformation process.
+        """
         event = {
             "timestamp": datetime.now().isoformat(),
-            "source": src,
-            "destination": dst,
-            "original_data": original,
-            "modified_data": modified,
-            "attack_type": "interception"
+            "topology_context": f"{sender}_to_{receiver}",
+            "original_content": original_msg,
+            "adversary_plan": plan,
+            "poisoned_content": poisoned_msg,
+            "was_modified": original_msg.strip() != poisoned_msg.strip()
         }
         self.events.append(event)
-        self._save_to_disk()
+        print(f"DEBUG: [Logger] Intercepted {sender} -> {receiver} | Modified: {event['was_modified']}")
 
-    def _save_to_disk(self):
-        with open(self.log_file, "w") as f:
+    def save_session(self, topology_name):
+        """Saves the current topology run to a JSON file."""
+        filename = f"{self.log_dir}/{topology_name.lower()}_run.json"
+        with open(filename, "w") as f:
             json.dump(self.events, f, indent=4)
+        print(f"SUCCESS: Logs saved to {filename}")
