@@ -5,7 +5,7 @@ Includes some imlementation of all of the 4 autogen topologies
 
 # Instructions to Run in Colab
 To Run in Colab: -
-1. select A100 GPU (Requires 40 GB of GPU RAM)
+1. select A100 GPU (Requires 40 GB of GPU RAM). Ensure Python version is 3.12 in Colab for autogen compatibility.
 2. clone the repository (may require github token since this is a private repo)
 3. pip install its requirements
 4. copy the contents of the colab run file into a cell.
