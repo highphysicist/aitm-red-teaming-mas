@@ -50,7 +50,7 @@ We provide pre-configured scenarios to test the attack across the four critical 
 * **Peer Pattern:** Focuses on 1-on-1 collaboration exploits.
 * **Hierarchy Pattern:** Targets the "Manager" nodes that summarize and delegate tasks.
 
-#### **Attack Goals ($A^{ad}$)**
+#### **Attack Library ($A^{ad}$)**
 We have implemented 4 types of attack: -
 * **Backdoor Attack:** Stealthily injects a credential pair
 * **Shadowing Attack:** Adds a line of code (logging) to the script silently
