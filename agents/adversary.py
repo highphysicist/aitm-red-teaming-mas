@@ -6,6 +6,12 @@ class LlamaAdversary:
         self.config = config
         self.strategy = strategy
         self.history = []
+        
+        # RESEARCH CONSTRAINT: 
+        # The adversary acts as a "Man-in-the-Middle" on exactly ONE channel.
+        # By default, we assume they have compromised Channel 0 (e.g., the HTTP link).
+        # You can change this index to test different scenarios.
+        self.compromised_channel_index = 0 
 
     def _call_llama(self, system_instruction, user_content):
         try:
@@ -22,7 +28,25 @@ class LlamaAdversary:
             print(f"DEBUG: Adversary call failed. Error: {e}")
             return "ERROR_IN_ADVERSARY"
 
-    def manipulate(self, message, sender, receiver):
+    def manipulate(self, message, sender, receiver, channel_index=0):
+        """
+        Injects payload ONLY if the current channel matches the compromised channel index.
+        Otherwise, acts as a clean passthrough.
+        
+        Args:
+            message (str): The original message content.
+            sender (str): Name of the sender.
+            receiver (str): Name of the receiver.
+            channel_index (int): The index of the transport channel currently carrying this message.
+        """
+        
+        # --- THE GUARDRAIL ---
+        # If this traffic is on a channel we don't control (e.g., the Encrypted Disk),
+        # we cannot touch it. Return original message immediately.
+        if channel_index != self.compromised_channel_index:
+            return message
+
+        # --- ATTACK LOGIC (Only runs if channel_index == compromised_channel_index) ---
         goal_key = "exfiltration" if "Executor" in receiver else "backdoor"
         goal_desc = self.config.ATTACK_LIBRARY.get(goal_key, "")
 

@@ -7,11 +7,22 @@ from core.autogen_adapter import AutoGenHook
 from eval.logger import AttackLogger
 from eval.metrics import Evaluator
 from config import Config
+from core.transport import InMemoryTransport, JsonFileTransport, SimulatedNetworkTransport
 
 # Initialize components
 logger = AttackLogger()
 adversary = LlamaAdversary(Config, strategy="shadowing")
-hook = AutoGenHook(adversary, logger)
+
+# DEFINE YOUR ARCHITECTURE
+# We use 3 different protocols to prove "Diverse Paths"
+diverse_protocols = [
+    SimulatedNetworkTransport(), # Channel 0: HTTP (Adversary attacks this!)
+    JsonFileTransport(),         # Channel 1: Shared Disk (Adversary can't touch)
+    InMemoryTransport()          # Channel 2: Direct Link (Adversary can't touch)
+]
+
+hook = AutoGenHook(adversary, logger, protocols=diverse_protocols)
+
 
 # The list of topologies as per your requirements
 test_suites = [
