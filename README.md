@@ -1,7 +1,35 @@
-# aitm-red-teaming-mas
-Implementation of https://arxiv.org/abs/2502.14847 with configurable and flexible attack strategies and configurable LLM
+# MIRROR (Multi-path Inter-agent Redundancy for Robust Orchestration and Resilience)
+
+Defense against AiTM:
+AiTM implemented from https://arxiv.org/abs/2502.14847 with configurable and flexible attack strategies and configurable LLM
 
 Includes some imlementation of all of the 4 autogen topologies
+
+## Local Setup & Usage
+MIRROR can be run on local workstations with sufficient VRAM or by pointing the config to external OpenAI-compatible APIs.
+
+### **1. Prerequisites**
+* **Python 3.12** (Mandatory for `autogen` hook stability).
+* **Environment:** Update `config.py` with your model endpoints and API keys.
+
+### **2. Running the Benchmark**
+The `main.py` script is the primary entry point. Use the following commands to test different security scenarios:
+
+#### **Scenario A: The Vulnerable Baseline**
+Run a standard chain topology with no redundancy ($k=1$) to observe successful AiTM exploitation.
+```bash
+python main.py --k 1 --topo chain
+```
+#### **Scenario B: Static BFT (Detection without Rotation)**
+Test a system with 3 channels but no movement (--ghosts 0). This demonstrates how an adaptive attacker builds a majority over multiple rounds.
+```bash
+python benchmark.py --k 3 --ghosts 0 --latching
+```
+#### **Scenario C: MIRROR Defense (Ghost Rotation)**
+The primary defense mode. Compromised channels are detected and logically rotated to Ghost IDs, preventing attacker synchronization.
+```bash
+python benchmark.py --k 3 --ghosts 1 --latching --carriers 2
+```
 
 # Instructions to Run in Colab
 To Run in Colab: -
@@ -12,6 +40,18 @@ To Run in Colab: -
 5. Run the cell and logs will get stored locally, looking similar to the logs file stored in the repo.
 
 Best-effort one-to-one mapping of the elements/notation/entities referred to for AiTM in the paper vs. this Project: -
+
+### **3. CLI Configuration Table**
+## 🛠️ CLI Configuration Flags
+
+| Flag | Default | Description |
+| :--- | :--- | :--- |
+| `--k` | `3` | Number of redundant communication channels. |
+| `--carriers` | `2` | Number of full-text carriers (ensures majority recovery). |
+| `--ghosts` | `1` | Toggle Ghost Rotation (`1` for ON, `0` for OFF). |
+| `--latching` | `False` | Enables Adaptive Adversary (attacker jumps to new channels). |
+| `--topo` | `chain` | MAS Topology: `chain`, `mesh`, `peer`, or `hierarchy`. |
+| `--runs` | `1` | Number of conversation turns/trials to execute. |
 
 ## 📝 AiTM Framework Mapping (Code-to-Paper)
 

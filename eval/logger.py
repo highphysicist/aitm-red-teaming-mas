@@ -10,10 +10,6 @@ class AttackLogger:
             os.makedirs(log_dir)
 
     def log_event(self, sender, receiver, original_msg, poisoned_msg, plan=""):
-        """
-        Records interception events.
-        Matches the call: logger.log_event(sender, receiver, original, poisoned, plan)
-        """
         event = {
             "timestamp": datetime.now().isoformat(),
             "sender": sender,
@@ -24,9 +20,27 @@ class AttackLogger:
             "was_modified": str(original_msg).strip() != str(poisoned_msg).strip()
         }
         self.events.append(event)
-        print(f"DEBUG: [Logger] Intercepted {sender} -> {receiver}")
+        print(f"DEBUG: [Logger] Event logged: {sender} -> {receiver}")
 
-    def save_session(self, topology_name):
-        filename = f"{self.log_dir}/{topology_name.lower()}_run.json"
-        with open(filename, "w") as f:
-            json.dump(self.events, f, indent=4)
+class MirrorLogger(AttackLogger):
+    def __init__(self, log_dir="logs"):
+        super().__init__(log_dir)
+        self.trials = []
+
+    def log_trial(self, sender, receiver, original_msg, final_msg, traitors, attacked_channels, latency):
+        if attacked_channels is None:
+            attacked_channels = []
+            
+        trial = {
+            "timestamp": datetime.now().isoformat(),
+            "sender": sender,
+            "receiver": receiver,
+            "original_msg": original_msg,
+            "final_msg": final_msg,
+            "traitors": traitors if traitors is not None else [],         
+            "attacked_channels": list(attacked_channels), # Force list type
+            "latency": latency
+        }
+        self.trials.append(trial)
+
+        self.log_event(sender, receiver, original_msg, final_msg, plan="MIRROR_PROTECTED")

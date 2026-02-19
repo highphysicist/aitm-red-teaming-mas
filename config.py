@@ -12,7 +12,9 @@ class Config:
     # Using Qwen 32B for the Adversary to ensure stealth and high-quality code injection
     # This model is much less likely to "apologize" or "explain" than Llama 3
     ADVERSARY_URL = _LOCAL_URL
-    ADVERSARY_MODEL = "qwen2.5:32b"
+    # Google Collab RESTORE
+    # ADVERSARY_MODEL = "qwen2.5:32b"
+    ADVERSARY_MODEL = "qwen2.5:14b"
 
     VICTIM_CONFIG = {
         "config_list": [
