@@ -45,7 +45,7 @@ def main():
     # INITIALIZE ADAPTER & ADVERSARY
     from config import Config
     from agents.adversary import LlamaAdversary
-    # 将 adversary 的初始化提取出来，因为 autogen 和 camel 都会用到
+    # Instantiate a shared adversary model to inject into the selected framework adapter
     adversary = LlamaAdversary(Config, strategy="shadowing")
 
     if args.adapter == "autogen":
