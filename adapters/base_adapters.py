@@ -24,13 +24,13 @@ class BaseMirrorAdapter:
         """
         The Universal Bridge: Splits, Distributes, and Resolves messages.
         """
-        # 1. GENERATION: Assigns dynamic logic_ids from the Engine
+        # GENERATION: Assigns dynamic logic_ids from the Engine
         payloads = self.engine.prepare_packets(message)
         
         candidates = []
         start_time = time.time()
 
-        # 2. DISTRIBUTION: Map Logic IDs to Physical Protocols
+        # DISTRIBUTION: Map Logic IDs to Physical Protocols
         for i, payload in enumerate(payloads):
             logic_id = payload['logic_id']
             # FIFO/Rotation mapping: ensures we hop to different protocols
@@ -68,10 +68,10 @@ class BaseMirrorAdapter:
                     "content": None
                 })
 
-        # 3. VERIFICATION & RECOVERY: Runs Absolute Majority BFT + Ghost Rotation
+        # VERIFICATION & RECOVERY: Runs Absolute Majority BFT + Ghost Rotation
         final_message, traitors = self.engine.resolve(candidates)
         
-        # 4. LOGGING: Data for ASR, QPR, and Latency metrics
+        # LOGGING: Data for ASR, QPR, and Latency metrics
         latency = time.time() - start_time
         if self.logger:
             self.logger.log_trial(
