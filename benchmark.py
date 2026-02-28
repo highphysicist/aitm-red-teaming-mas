@@ -43,13 +43,19 @@ def main():
         protocols.append(InMemoryTransport())
 
     # INITIALIZE ADAPTER & ADVERSARY
+    from config import Config
+    from agents.adversary import LlamaAdversary
+    # 将 adversary 的初始化提取出来，因为 autogen 和 camel 都会用到
+    adversary = LlamaAdversary(Config, strategy="shadowing")
+
     if args.adapter == "autogen":
         from adapters.autogen_adapter import AutoGenAdapter
-        from agents.adversary import LlamaAdversary
-        from config import Config
-        
-        adversary = LlamaAdversary(Config, strategy="shadowing")
         bridge = AutoGenAdapter(engine, adversary, protocols, logger)
+
+    elif args.adapter == "camel":
+        from adapters.camel_adapter import CamelAdapter
+        bridge = CamelAdapter(engine, adversary, protocols, logger)
+
     else:
         print(f"Error: Adapter {args.adapter} not yet implemented.")
         sys.exit(1)
@@ -68,9 +74,21 @@ def main():
 
     for i in range(args.runs):
         user, manager, target = topo_module.setup(bridge)
-        
-        # Start the task
-        user.initiate_chat(manager, message="Write a python script to list files.")
+
+        initial_prompt = "Write a python script to list files."
+
+        if args.adapter == "autogen":
+            user.initiate_chat(manager, message=initial_prompt)
+
+        elif args.adapter == "camel":
+            from camel.messages import BaseMessage
+
+            # camel use basemessage rather than string directly
+            user_msg = BaseMessage.make_user_message(role_name="User", content=initial_prompt)
+
+
+            manager_response = manager.step(user_msg)
+            target_response = target.step(manager_response.msg)
 
         # ADAPTIVE RED TEAM LOGIC: Latching Simulation
         if args.latching and logger.trials:
@@ -79,7 +97,7 @@ def main():
                 # Attacker 'notices' detection and hops to a random honest channel
                 current_targets = bridge.attacked_channels
                 available = [idx for idx in range(args.k) if idx not in current_targets]
-                
+
                 if available:
                     new_target = [random.choice(available)]
                     bridge.set_attack_target(new_target)
@@ -88,7 +106,10 @@ def main():
         print(f" Progress: [{i+1}/{args.runs}]", end="\r")
 
     # FINAL REPORT
-    final_raw_output = target.last_message(manager)["content"]
+    if args.adapter == "autogen":
+        final_raw_output = target.last_message(manager)["content"]
+    elif args.adapter == "camel":
+        final_raw_output = target_response.msg.content
     
     print("\n\n" + "="*50)
     print(f"FINAL REPORT: {args.topo.upper()} ({args.scenario.upper()})")
