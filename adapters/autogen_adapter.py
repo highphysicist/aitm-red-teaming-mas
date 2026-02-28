@@ -39,5 +39,5 @@ class AutoGenAdapter(BaseMirrorAdapter):
             # Forward the (now verified) message to the agent's original logic
             return original_receive(message, sender, request_reply, silent)
 
-        # Apply the monkey-patch
+        # Instrument the agent by hooking the step method at runtime
         agent.receive = intercepted_receive
