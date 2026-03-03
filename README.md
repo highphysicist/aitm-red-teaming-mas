@@ -25,6 +25,8 @@ ollama pull qwen2.5:14b
 
 ### **2. Running the Benchmark**
 
+If you want to use Docker with autogen, modification is needed in the corresponding topology file (i.e. chain.py use_docker": True).
+
 The `main.py` script is the primary entry point. Use the following commands to test different security scenarios:
 
 #### **Scenario A: The Vulnerable Baseline**

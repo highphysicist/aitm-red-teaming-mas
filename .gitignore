@@ -2,3 +2,7 @@
 *.idea*
 venv/
 env/
+#exclude cache and py cache
+/.cache/
+**/__pycache__
+#--------------------------
