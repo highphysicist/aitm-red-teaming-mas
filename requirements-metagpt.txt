@@ -1,0 +1,8 @@
+metagpt
+ollama==0.6.1
+docker==7.1.0
+python-dotenv
+pydantic
+colorama
+tqdm
+requests
