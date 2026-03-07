@@ -2,6 +2,7 @@ import argparse
 import sys
 import time
 import random
+import asyncio 
 
 # Core MIRROR imports
 from MIRROR_core.MIRROR_engine import MirrorEngine
@@ -9,16 +10,19 @@ from MIRROR_core.transport import SimulatedNetworkTransport, InMemoryTransport, 
 from eval.logger import MirrorLogger
 from eval.metrics import Evaluator
 
-# Topologies [CHANGE NAME TO MATCH PAPER]
-import topologies.chain as chain
-import topologies.hierarchy as hierarchy
-import topologies.mesh as mesh
-import topologies.peer as peer
+# Topologies
+try:
+    import topologies.chain as chain
+    import topologies.hierarchy as hierarchy
+    import topologies.mesh as mesh
+    import topologies.peer as peer
+except ImportError:
+    chain = hierarchy = mesh = peer = None
 
 def main():
     parser = argparse.ArgumentParser(description="MIRROR Framework: Resilience Benchmark")
 
-    parser.add_argument("--adapter", type=str, default="autogen", choices=["autogen", "camel"])
+    parser.add_argument("--adapter", type=str, default="autogen", choices=["autogen", "camel", "metagpt"])
     parser.add_argument("--topo", type=str, default="chain", choices=["chain", "hierarchy", "mesh", "peer"])
     parser.add_argument("--runs", type=int, default=1, help="Number of trials.")
     parser.add_argument("--k", type=int, default=3, help="Channels (k=1: Baseline, k=3: MIRROR)")
@@ -28,6 +32,10 @@ def main():
                         choices=["real-world", "perfect-scenario", "network-only", "disk-only"])
     parser.add_argument("--attack_start", type=int, default=0, help="Initial attacked channel.")
     parser.add_argument("--latching", action="store_true", help="Simulate adaptive 'latching' adversary.")
+    
+    parser.add_argument("--metavictim", type=str, default="Engineer", 
+                    choices=["ProductManager", "Architect", "ProjectManager", "Engineer"],
+                    help="The specific MetaGPT role to target with the AiTM attack.")
     
     args = parser.parse_args()
 
@@ -45,7 +53,6 @@ def main():
     # INITIALIZE ADAPTER & ADVERSARY
     from config import Config
     from agents.adversary import LlamaAdversary
-    # Instantiate a shared adversary model to inject into the selected framework adapter
     adversary = LlamaAdversary(Config, strategy="shadowing")
 
     if args.adapter == "autogen":
@@ -56,6 +63,11 @@ def main():
         from adapters.camel_adapter import CamelAdapter
         bridge = CamelAdapter(engine, adversary, protocols, logger)
 
+    elif args.adapter == "metagpt":
+        from adapters.metagpt_adapter import MetaGPTAdapter
+        adapter_config = {"victim": args.metavictim}
+        bridge = MetaGPTAdapter(engine, adversary, protocols, logger, config=adapter_config)
+
     else:
         print(f"Error: Adapter {args.adapter} not yet implemented.")
         sys.exit(1)
@@ -63,7 +75,7 @@ def main():
     # Initial target
     bridge.set_attack_target([args.attack_start])
 
-    # EXECUTION [CHANGE NAME TO MATCH PAPER]
+    # EXECUTION
     topologies = {"chain": chain, "hierarchy": hierarchy, "mesh": mesh, "peer": peer}
     topo_module = topologies[args.topo]
 
@@ -72,29 +84,32 @@ def main():
     print(f"Strategy:      k={args.k} | Ghosts={args.ghosts} | Latching={args.latching}")
     print("-" * 50)
 
+    # Variable to hold the final output across runs
+    final_raw_output = ""
+
     for i in range(args.runs):
-        user, manager, target = topo_module.setup(bridge)
 
         initial_prompt = "Write a python script to list files."
 
         if args.adapter == "autogen":
+            user, manager, target = topo_module.setup(bridge)
             user.initiate_chat(manager, message=initial_prompt)
 
         elif args.adapter == "camel":
             from camel.messages import BaseMessage
-
-            # camel use basemessage rather than string directly
+            user, manager, target = topo_module.setup(bridge)
             user_msg = BaseMessage.make_user_message(role_name="User", content=initial_prompt)
-
-
             manager_response = manager.step(user_msg)
             target_response = target.step(manager_response.msg)
+
+        elif args.adapter == "metagpt":
+            bridge.setup_agents()
+            final_raw_output = asyncio.run(bridge.execute_task(initial_prompt))
 
         # ADAPTIVE RED TEAM LOGIC: Latching Simulation
         if args.latching and logger.trials:
             last_trial = logger.trials[-1]
             if last_trial.get('traitors'):
-                # Attacker 'notices' detection and hops to a random honest channel
                 current_targets = bridge.attacked_channels
                 available = [idx for idx in range(args.k) if idx not in current_targets]
 
@@ -110,6 +125,7 @@ def main():
         final_raw_output = target.last_message(manager)["content"]
     elif args.adapter == "camel":
         final_raw_output = target_response.msg.content
+    # [METAGPT HOOK] final_raw_output is already set in the loop for MetaGPT
     
     print("\n\n" + "="*50)
     print(f"FINAL REPORT: {args.topo.upper()} ({args.scenario.upper()})")
