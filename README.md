@@ -1,151 +1,278 @@
-# MIRROR (Multi-path Inter-agent Redundancy for Robust Orchestration and Resilience)
+# MIRROR
 
-Defense against AiTM:
-AiTM implemented from https://arxiv.org/abs/2502.14847 with configurable and flexible attack strategies and configurable LLM
+**Multi-path Inter-agent Redundancy for Robust Orchestration and Resilience**
 
-Includes some imlementation of all of the 4 autogen topologies
+Defense against **Adversary-in-the-Middle (AiTM)** attacks.
+AiTM implementation based on: https://arxiv.org/abs/2502.14847
 
-## Local Setup & Usage
+MIRROR provides configurable and flexible attack strategies, configurable LLMs, and implementations of topologies across **AutoGen**, **CAMEL**, and **MetaGPT** frameworks.
+
+---
+
+# 📦 Local Setup & Usage
 
 MIRROR can be run on local workstations with sufficient VRAM or by pointing the config to external OpenAI-compatible APIs.
 
-### **1. Prerequisites**
+---
 
-* **Python 3.12** (Mandatory for `autogen` hook stability).
-* **Environment:** Update `config.py` with your model endpoints and API keys.
-* **Install Ollama and models:** https://ollama.com/
+# 1️⃣ Prerequisites & The "Two-Environment" Strategy
+
+## ✅ Python Version
+
+* **Python 3.11 (Strictly mandatory)**
+* ⚠️ Python 3.12+ will cause severe compatibility issues with framework dependencies.
+
+---
+
+## ✅ Install Ollama and Models
+
+Install Ollama:
+https://ollama.com
+
+Then pull required models:
 
 ```bash
 ollama pull llama3
-```
-
-```bash
 ollama pull qwen2.5:14b
 ```
 
-### **2. Running the Benchmark**
+---
 
+## ⚠️ CRITICAL: Dependency Management
+
+AutoGen/CAMEL and MetaGPT require **conflicting versions** of core libraries (`openai`, `pydantic`, etc.).
+
+You **cannot** install all frameworks in a single virtual environment.
+
+You must create **two separate environments**:
+
+---
+
+## 🧪 Environment 1: AutoGen & CAMEL
+
+```bash
+python3.11 -m venv venv-base
+source venv-base/bin/activate
+pip install pyautogen camel-ai
+# Run AutoGen and CAMEL benchmarks here
+```
+
+---
+
+## 🧪 Environment 2: MetaGPT (use uv pip instead of pip)
+
+```bash
+python3.11 -m venv venv-metagpt
+source venv-metagpt/bin/activate
+pip install metagpt
+# Run MetaGPT benchmarks here
+```
+
+---
+
+# 2️⃣ Running the Benchmark
+
+If using Docker with AutoGen, modify the corresponding topology file (e.g., `chain.py` → `use_docker: True`).
+
+The main entry point:
+
+```bash
+python main.py
+```
+
+⚠️ Ensure the correct virtual environment is activated for the `--adapter` you choose.
+
+---
+
+# 🔓 Scenario A: Vulnerable Baseline
 If you want to use Docker with autogen, modification is needed in the corresponding topology file (i.e. chain.py use_docker": True).
 
 The `main.py` script is the primary entry point. Use the following commands to test different security scenarios:
 
-#### **Scenario A: The Vulnerable Baseline**
+Run a standard topology with no redundancy ($k=1$) to observe successful AiTM exploitation.
 
-Run a standard chain topology with no redundancy ($k=1$) to observe successful AiTM exploitation.
+### AutoGen (Default)
 
 ```bash
 python main.py --k 1 --topo chain
 ```
 
-Use camel as adapter
+### CAMEL
 
 ```bash
 python main.py --adapter camel --k 1 --topo chain
 ```
 
-#### **Scenario B: Static BFT (Detection without Rotation)**
-
-Test a system with 3 channels but no movement (--ghosts 0). This demonstrates how an adaptive attacker builds a majority over multiple rounds.
+### MetaGPT (Requires victim role)
 
 ```bash
-python main.py --k 3 --ghosts 0 --latching
+python main.py --adapter metagpt --k 1 --metavictim Architect
 ```
 
-Use camel as adapter
+---
+
+# 🔍 Scenario B: Static BFT (Detection without Rotation)
+
+Test 3 channels with no movement (`--ghosts 0`).
+Demonstrates how an adaptive attacker builds majority over multiple rounds.
 
 ```bash
 python main.py --adapter camel --k 3 --ghosts 0 --latching
 ```
 
-#### **Scenario C: MIRROR Defense (Ghost Rotation)**
+---
 
-The primary defense mode. Compromised channels are detected and logically rotated to Ghost IDs, preventing attacker synchronization.
+# 🛡️ Scenario C: MIRROR Defense (Ghost Rotation)
 
-```bash
-python main.py --k 3 --ghosts 1 --latching --carriers 2
-```
-
-Use camel as adapter
+Primary defense mode.
+Compromised channels are detected and logically rotated to Ghost IDs.
 
 ```bash
-python main.py --adapter camel --k 3 --ghosts 1 --latching --carriers 2
+python main.py --adapter metagpt --k 3 --ghosts 1 --latching --carriers 2 --metavictim Engineer
 ```
-
-# Instructions to Run in Colab
-
-To Run in Colab: -
-
-1. select A100 GPU (Requires 40 GB of GPU RAM). Ensure Python version is 3.12 in Colab for autogen compatibility.
-2. clone the repository (may require github token since this is a private repo)
-3. pip install its requirements
-4. copy the contents of the colab run file into a cell.
-5. Run the cell and logs will get stored locally, looking similar to the logs file stored in the repo.
-
-Best-effort one-to-one mapping of the elements/notation/entities referred to for AiTM in the paper vs. this Project: -
-
-### **3. CLI Configuration Table**
-
-## 🛠️ CLI Configuration Flags
-
-
-| Flag         | Default | Description                                                  |
-| :----------- | :------ | :----------------------------------------------------------- |
-| `--k`        | `3`     | Number of redundant communication channels.                  |
-| `--carriers` | `2`     | Number of full-text carriers (ensures majority recovery).    |
-| `--ghosts`   | `1`     | Toggle Ghost Rotation (`1` for ON, `0` for OFF).             |
-| `--latching` | `False` | Enables Adaptive Adversary (attacker jumps to new channels). |
-| `--topo`     | `chain` | MAS Topology:`chain`, `mesh`, `peer`, or `hierarchy`.        |
-| `--runs`     | `1`     | Number of conversation turns/trials to execute.              |
-
-## 📝 AiTM Framework Mapping (Code-to-Paper)
-
-The following table maps the formal notation used in the He et al. (2025) paper to the specific components of this implementation.
-
-
-| Paper Notation    | Conceptual Element         | Repository Implementation                         |
-| :---------------- | :------------------------- | :------------------------------------------------ |
-| **$G$**           | **Communication Topology** | `scenarios/` (Chain, Mesh, Peer, Hierarchy)       |
-| **$A$**           | **Agent Set**              | `autogen.ConversableAgent` instances              |
-| **$A^{ad}$**      | **Adversarial Agent**      | `agents/adversary.py` (`LlamaAdversary`)          |
-| **$A^{vic}$**     | **Victim Agent**           | The hooked agent in`core/autogen_adapter.py`      |
-| **$M_{i \to j}$** | **Inter-agent Message**    | The`message` string intercepted by `AutoGenHook`  |
-| **$AG$**          | **Attack Goal**            | `core/library.py` (`ATTACK_LIBRARY` dict)         |
-| **$R_{mon}$**     | **Monitoring Mechanism**   | `eval/logger.py` (`AttackLogger`)                 |
-| **$R_{ref}$**     | **Reflection Mechanism**   | `manipulate()` Stage 1 (Planning/Reflection Loop) |
-| **$ASR$**         | **Attack Success Rate**    | `eval/metrics.py` (`Evaluator.calculate_asr`)     |
 
 ---
 
-### 🛡️ Implementation Details
+# ☁️ Running in Google Colab
 
-#### **The Interceptor ($A^{ad}$)**
+## Requirements:
 
-The **Adversarial Agent** is implemented via a monkey-patching "hook" in the `core/autogen_adapter.py`.
+* **A100 GPU (40GB VRAM required)**
+* Python 3.11
 
-* **Mechanism:** It overrides the `.receive()` method of the target agent, ensuring that any message $M$ sent from agent $i$ to agent $j$ is diverted through the adversary before processing.
-* **Stealth:** This method requires zero changes to the underlying Multi-Agent System (MAS) architecture, fulfilling the "black-box" requirement of the paper.
+## Steps:
 
-#### **Instruction Reflection ($R_{ref}$)**
+1. Select A100 GPU runtime.
+2. Ensure Python 3.11.
+3. Clone repository (may require GitHub token if private).
+4. Install requirements.
 
-Our implementation follows the **Two-Stage Reflection** process to maintain semantic consistency and bypass detection:
+   * ⚠️ Keep MetaGPT and AutoGen installs isolated.
+5. Copy contents of the Colab run file into a cell.
+6. Execute.
 
-1. **Reflection Stage (Planning):** The 70B Llama analyzes the sender's identity and the communication format (e.g., Python code vs. JSON) to craft a stealthy injection plan.
-2. **Execution Stage (Manipulation):** The adversary applies a strategy (Shadowing or Mimicry) to rewrite the message, embedding the **Attack Goal ($AG$)** while ensuring the output remains valid and syntactically identical to the expected input.
+Logs will be stored locally and mirror the repository’s logs directory.
 
-#### **Topology Patterns ($G$)**
+---
 
-We provide pre-configured scenarios to test the attack across the four critical communication patterns defined in the paper:
+# 🛠️ CLI Configuration Flags
 
-* **Chain Pattern:** Tests linear trust where a single point of failure (the Executor) compromises the output.
-* **Mesh Pattern:** Demonstrates how centralizing communication in a "Group Chat Manager" makes the entire MAS vulnerable.
-* **Peer Pattern:** Focuses on 1-on-1 collaboration exploits.
-* **Hierarchy Pattern:** Targets the "Manager" nodes that summarize and delegate tasks.
+| Flag           | Default    | Description                                                                       |
+| -------------- | ---------- | --------------------------------------------------------------------------------- |
+| `--adapter`    | `autogen`  | Framework: `autogen`, `camel`, `metagpt`                                          |
+| `--k`          | `3`        | Number of redundant communication channels                                        |
+| `--carriers`   | `2`        | Full-text carriers (ensures majority recovery)                                    |
+| `--ghosts`     | `1`        | Toggle Ghost Rotation (1=ON, 0=OFF)                                               |
+| `--latching`   | `False`    | Enables Adaptive Adversary                                                        |
+| `--topo`       | `chain`    | Topology: `chain`, `mesh`, `peer`, `hierarchy`                                    |
+| `--metavictim` | `Engineer` | MetaGPT target role (`ProductManager`, `Architect`, `ProjectManager`, `Engineer`) |
+| `--runs`       | `1`        | Number of conversation turns/trials                                               |
 
-#### **Attack Library ($A^{ad}$)**
+---
 
-We have implemented 4 types of attack: -
+# 📝 AiTM Framework Mapping (Code ↔ Paper)
 
-* **Backdoor Attack:** Stealthily injects a credential pair
-* **Shadowing Attack:** Adds a line of code (logging) to the script silently
-* **Persistent Attack:** Applies a silent background monitor process script
-* **Disruption Attack:** Silently adds an instruction to change or add operators/operands to change the result of a computation.
+Best-effort mapping between He et al. (2025) paper notation and repository implementation.
+
+| Paper Notation | Concept                | Repository Implementation                     |
+| -------------- | ---------------------- | --------------------------------------------- |
+| $G$            | Communication Topology | `scenarios/` (Chain, Mesh, Peer, Hierarchy)   |
+| $A$            | Agent Set              | `autogen.ConversableAgent` instances          |
+| $A^{ad}$       | Adversarial Agent      | `agents/adversary.py` (`LlamaAdversary`)      |
+| $A^{vic}$      | Victim Agent           | Hooked agent in `core/autogen_adapter.py`     |
+| $M_{i \to j}$  | Inter-agent Message    | Message string intercepted by adapters        |
+| $AG$           | Attack Goal            | `core/library.py` (`ATTACK_LIBRARY`)          |
+| $R_{mon}$      | Monitoring Mechanism   | `eval/logger.py` (`AttackLogger`)             |
+| $R_{ref}$      | Reflection Mechanism   | `manipulate()` Stage 1 (Planning Loop)        |
+| $ASR$          | Attack Success Rate    | `eval/metrics.py` (`Evaluator.calculate_asr`) |
+
+---
+
+# 🛡️ Implementation Details
+
+## The Interceptor ($A^{ad}$)
+
+The adversarial agent is implemented via **monkey-patching hooks** inside framework adapters.
+
+### Mechanism
+
+* Overrides native receiving methods:
+
+  * `.receive()` in AutoGen
+  * `.put_message()` in MetaGPT
+* Diverts message $M$ from agent $i$ → $j$ through adversary before processing.
+
+### Stealth
+
+* Requires **zero changes** to underlying MAS architecture.
+* Fulfills the paper’s black-box constraint.
+
+---
+
+## Instruction Reflection ($R_{ref}$)
+
+Implements **Two-Stage Reflection** to preserve semantic consistency.
+
+### 1️⃣ Reflection Stage (Planning)
+
+* 70B Llama analyzes:
+
+  * Sender identity
+  * Communication format (Python, JSON, etc.)
+* Crafts stealth injection strategy.
+
+### 2️⃣ Execution Stage (Manipulation)
+
+Applies:
+
+* Shadowing
+* Mimicry
+
+Rewrites message to embed Attack Goal ($AG$) while maintaining syntactic validity.
+
+---
+
+# 🌐 Topology Patterns ($G$)
+
+Pre-configured scenarios matching the paper:
+
+### 🔗 Chain Pattern
+
+Single point of failure (Executor).
+
+### 🕸️ Mesh Pattern
+
+Centralized communication (Group Chat Manager vulnerability).
+
+### 🤝 Peer Pattern
+
+1-on-1 collaboration exploit.
+
+### 🏢 Hierarchy Pattern
+
+Targets Manager nodes that summarize and delegate tasks.
+
+---
+
+# ⚔️ Attack Library ($A^{ad}$)
+
+Implemented attack types:
+
+* **Backdoor Attack**
+  Stealth credential injection.
+
+* **Shadowing Attack**
+  Silent logging line insertion.
+
+* **Persistent Attack**
+  Background monitoring script injection.
+
+* **Disruption Attack**
+  Alters operators/operands to change computation results.
+
+---
+
+# 🚀 Next Steps
+
+* Build a `.json` dataset loader for `main.py` to run multiple prompts
+* Create a `run_evals.sh` script to automate benchmark execution
