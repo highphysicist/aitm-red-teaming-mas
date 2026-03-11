@@ -59,7 +59,7 @@ pip install pyautogen camel-ai
 
 ---
 
-## 🧪 Environment 2: MetaGPT
+## 🧪 Environment 2: MetaGPT (use uv pip instead of pip)
 
 ```bash
 python3.11 -m venv venv-metagpt
