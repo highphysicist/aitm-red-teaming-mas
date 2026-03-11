@@ -56,15 +56,16 @@ import topologies.hierarchy as hierarchy
 import topologies.mesh      as mesh
 import topologies.peer      as peer
 from agents.adversary     import LlamaAdversary
-from core.autogen_adapter import AutoGenHook
-from eval.logger          import AttackLogger
+from adapters.autogen_adapter import AutoGenAdapter
+from eval.logger          import MirrorLogger
 from eval.metrics         import Evaluator
 from config               import Config
-from core.transport       import (
+from MIRROR_core.transport       import (
     InMemoryTransport,
     JsonFileTransport,
     SimulatedNetworkTransport,
 )
+from MIRROR_core.MIRROR_engine import MirrorEngine
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -256,16 +257,18 @@ def run_trial(
     topo_name:  str,
     topo_module,
     task:       dict,
-    logger:     AttackLogger,
+    logger:     MirrorLogger,
     adversary:  LlamaAdversary,
+    engine: MirrorEngine,
     protocols:  list,
+    ds_name: str
 ) -> dict:
     """
     Run one attack trial: one topology x one task.
     Returns a flat dict ready to be written as a CSV row.
     """
     logger.events = []
-    hook = AutoGenHook(adversary, logger, protocols=protocols)
+    hook = AutoGenAdapter(engine, adversary, protocols, logger)
 
     try:
         user, manager, target = topo_module.setup(hook)
@@ -277,29 +280,25 @@ def run_trial(
         )
 
         return {
-            "topology":             topo_name,
-            "task_id":              task["task_id"],
-            "interception_count":   report["interception_count"],
-            "injections_found":     report["injections_found"],
-            "payload_detected":     report["payload_detected"],
-            "asr":                  report["asr"],
-            "final_output_preview": report["final_output_preview"],
-            "error":                "",
-        }
+              "topology":             topo_name,
+              "task_id":              task["task_id"],
+              "ds_name":              ds_name,
+              "payload_detected":     report["payload_detected"],
+              "asr":                  report["value"],
+              "error":                "",
+}
 
     except Exception as exc:
         print(f"  [WARN] Trial failed ({topo_name} / {task['task_id']}): {exc}")
         traceback.print_exc()
         return {
-            "topology":             topo_name,
-            "task_id":              task["task_id"],
-            "interception_count":   0,
-            "injections_found":     0,
-            "payload_detected":     False,
-            "asr":                  0.0,
-            "final_output_preview": "",
-            "error":                str(exc),
-        }
+                "topology":             topo_name,
+                "task_id":              task["task_id"],
+                "ds_name":              ds_name,
+                "payload_detected":     False,
+                "asr":                  0.0,
+                "error":                str(exc),
+              }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -352,7 +351,8 @@ def run_all(args):
         JsonFileTransport(),           # Channel 1: Disk   (adversary can't touch)
         InMemoryTransport(),           # Channel 2: Direct (adversary can't touch)
     ]
-    logger    = AttackLogger(log_dir=str(logs_dir))
+    logger    = MirrorLogger()
+    engine = MirrorEngine(k=1, num_text_carriers=2, max_ghost_channels=0)
     adversary = LlamaAdversary(Config, strategy="shadowing")
 
     # ── Run trials ────────────────────────────────────────────────────────────
@@ -377,17 +377,20 @@ def run_all(args):
                     task=task,
                     logger=logger,
                     adversary=adversary,
+                    engine=engine,
                     protocols=diverse_protocols,
+                    ds_name = ds_name
                 )
                 result["ds_name"] = ds_name
                 all_results.append(result)
 
                 status = "HIT" if result["payload_detected"] else "miss"
-                print(f"{status}  intercepts={result['interception_count']}")
+                # print(f"{status}  intercepts={result['interception_count']}")
 
                 # Flush log after every trial so partial runs are recoverable
                 safe_id = task["task_id"].replace("/", "_")
-                logger.save_session(f"{ds_name}_{topo_name}_{safe_id}")
+                with open(out_dir / "trials.json", "w") as f:
+                    json.dump(logger.trials, f, indent=2, default=str)
 
     # ── Per-trial summary CSV ─────────────────────────────────────────────────
     summary_path = out_dir / "summary.csv"
@@ -404,17 +407,14 @@ def run_all(args):
         agg = (
             df.groupby(["ds_name", "topology"])
             .agg(
-                n_trials          = ("asr",                "count"),
-                n_hits            = ("payload_detected",   "sum"),
-                asr_mean          = ("asr",                "mean"),
-                avg_interceptions = ("interception_count", "mean"),
-                avg_injections    = ("injections_found",   "mean"),
-                error_count       = ("error",              lambda x: (x != "").sum()),
+                n_trials  = ("asr", "count"),
+                n_hits    = ("payload_detected", "sum"),
+                asr_mean  = ("asr", "mean"),
+                error_count = ("error", lambda x: (x != "").sum()),
             )
             .reset_index()
         )
         agg["asr_pct"] = (agg["asr_mean"] * 100).round(1)
-
         report_path = out_dir / "report.csv"
         agg.to_csv(report_path, index=False)
 
@@ -427,7 +427,7 @@ def run_all(args):
             print(
                 f"  {row['ds_name']:<12} {row['topology']:<12} "
                 f"{int(row['n_trials']):>6} {int(row['n_hits']):>5} "
-                f"{row['asr_pct']:>6.1f}%  {row['avg_interceptions']:>14.1f}"
+                # f"{row['asr_pct']:>6.1f}%  {row['avg_interceptions']:>14.1f}"
             )
         print(f"{'='*68}")
         print(f"\n[+] Aggregated report  -> {report_path}")
@@ -446,7 +446,7 @@ def parse_args():
 
     # Dataset paths — defaults match your exact data/ directory layout
     p.add_argument(
-        "--mmlu_dir", default="data/mmlu/test",
+        "--mmlu_dir", default="/content/aitm-red-teaming-mas/data/mmlu/test",
         help="Directory of MMLU per-subject CSV files.",
     )
     p.add_argument(
@@ -455,11 +455,11 @@ def parse_args():
              "Omit to use all subjects in --mmlu_dir.",
     )
     p.add_argument(
-        "--humaneval", default="data/test-00000-of-00001.parquet",
+        "--humaneval", default="/content/aitm-red-teaming-mas/data/test-00000-of-00001.parquet",
         help="HumanEval file: .parquet (HuggingFace) or .jsonl/.jsonl.gz (OpenAI repo).",
     )
     p.add_argument(
-        "--mbpp", default="data/sanitized-mbpp.jsonl",
+        "--mbpp", default="/content/aitm-red-teaming-mas/data/sanitized-mbpp.jsonl",
         help="Sanitized MBPP file from Google Research repo.",
     )
 
