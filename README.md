@@ -85,6 +85,9 @@ python main.py
 ---
 
 # 🔓 Scenario A: Vulnerable Baseline
+If you want to use Docker with autogen, modification is needed in the corresponding topology file (i.e. chain.py use_docker": True).
+
+The `main.py` script is the primary entry point. Use the following commands to test different security scenarios:
 
 Run a standard topology with no redundancy ($k=1$) to observe successful AiTM exploitation.
 

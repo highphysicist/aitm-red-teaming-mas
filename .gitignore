@@ -3,3 +3,7 @@
 venv/
 env/
 venv-metagpt/
+#exclude cache and py cache
+/.cache/
+**/__pycache__
+#--------------------------
