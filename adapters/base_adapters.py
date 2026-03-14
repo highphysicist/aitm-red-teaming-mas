@@ -1,7 +1,7 @@
 import time
 
 class BaseMirrorAdapter:
-    def __init__(self, engine, adversary, protocols, logger=None):
+    def __init__(self, engine, adversary, protocols, victim_name, logger=None):
         """
         engine: The MirrorEngine (handles BFT & Ghost Rotation).
         adversary: The Red Team module (LlamaAdversary).
@@ -12,7 +12,8 @@ class BaseMirrorAdapter:
         self.adversary = adversary
         self.protocols = protocols
         self.logger = logger
-        self.attacked_channels = [] 
+        self.attacked_channels = []
+        self.victim_name = victim_name
 
     def set_attack_target(self, channel_indices):
         """
@@ -39,9 +40,9 @@ class BaseMirrorAdapter:
             try:
                 # Simulate the actual transport
                 transported_payload = protocol.send(payload)
-                
+                target_matched = sender_name == self.victim_name
                 # ADVERSARY: Only poisons if the channel slot index is in our target list
-                if i in self.attacked_channels:
+                if i in self.attacked_channels or target_matched:
                     # Note: Independent calls to test the Synchronization Barrier
                     poisoned_content = self.adversary.manipulate(
                         transported_payload['content'], 

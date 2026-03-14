@@ -13,17 +13,19 @@ from eval.metrics import Evaluator
 # Topologies
 try:
     import topologies.chain as chain
-    import topologies.hierarchy as hierarchy
-    import topologies.mesh as mesh
-    import topologies.peer as peer
+    import topologies.tree as tree
+    import topologies.complete as complete
+    import topologies.random as random
 except ImportError:
-    chain = hierarchy = mesh = peer = None
+    chain = tree = complete = random = None
+
+
 
 def main():
     parser = argparse.ArgumentParser(description="MIRROR Framework: Resilience Benchmark")
 
     parser.add_argument("--adapter", type=str, default="autogen", choices=["autogen", "camel", "metagpt"])
-    parser.add_argument("--topo", type=str, default="chain", choices=["chain", "hierarchy", "mesh", "peer"])
+    parser.add_argument("--topo", type=str, default="chain", choices=["chain", "tree", "complete", "random"])
     parser.add_argument("--runs", type=int, default=1, help="Number of trials.")
     parser.add_argument("--k", type=int, default=3, help="Channels (k=1: Baseline, k=3: MIRROR)")
     parser.add_argument("--carriers", type=int, default=2, help="Full-text carriers.")
@@ -36,12 +38,13 @@ def main():
     parser.add_argument("--metavictim", type=str, default="Engineer", 
                     choices=["ProductManager", "Architect", "ProjectManager", "Engineer"],
                     help="The specific MetaGPT role to target with the AiTM attack.")
+    parser.add_argument("--dataset", type=str, default="mbpp", choices=["mmlu", "mbpp", "HumanEval"], help="Dataset to test AiTM/MIRROR on")
     
     args = parser.parse_args()
 
     logger = MirrorLogger()
     engine = MirrorEngine(k=args.k, num_text_carriers=args.carriers, max_ghost_channels=args.ghosts)
-    
+    dataset = args.dataset
     # PROTOCOL ASSIGNMENT
     protocols = [InMemoryTransport() for _ in range(args.k)]
     if args.scenario == "real-world":
@@ -54,19 +57,20 @@ def main():
     from config import Config
     from agents.adversary import LlamaAdversary
     adversary = LlamaAdversary(Config, strategy="shadowing")
+    victim_name = Config.VICTIM_CONFIG[args.topo]
 
     if args.adapter == "autogen":
         from adapters.autogen_adapter import AutoGenAdapter
-        bridge = AutoGenAdapter(engine, adversary, protocols, logger)
+        bridge = AutoGenAdapter(engine, adversary, protocols, victim_name, logger)
 
     elif args.adapter == "camel":
         from adapters.camel_adapter import CamelAdapter
-        bridge = CamelAdapter(engine, adversary, protocols, logger)
+        bridge = CamelAdapter(engine, adversary, protocols, victim_name, logger)
 
     elif args.adapter == "metagpt":
         from adapters.metagpt_adapter import MetaGPTAdapter
         adapter_config = {"victim": args.metavictim}
-        bridge = MetaGPTAdapter(engine, adversary, protocols, logger, config=adapter_config)
+        bridge = MetaGPTAdapter(engine, adversary, protocols, victim_name, logger, config=adapter_config)
 
     else:
         print(f"Error: Adapter {args.adapter} not yet implemented.")
@@ -76,8 +80,9 @@ def main():
     bridge.set_attack_target([args.attack_start])
 
     # EXECUTION
-    topologies = {"chain": chain, "hierarchy": hierarchy, "mesh": mesh, "peer": peer}
+    topologies = {"chain": chain, "tree": tree, "complete": complete, "random": random}
     topo_module = topologies[args.topo]
+
 
     print(f"\n MIRROR RESILIENCE BENCHMARK")
     print(f"Configuration: {args.runs} runs | {args.adapter.upper()} | {args.topo.upper()}")

@@ -14,8 +14,8 @@ from adapters.base_adapters import BaseMirrorAdapter
 from MIRROR_core.MIRROR_engine import MirrorEngine
 
 class MetaGPTAdapter(BaseMirrorAdapter):
-    def __init__(self, engine, adversary, protocols, logger, config: Dict[str, Any] = None):
-        super().__init__(engine, adversary, protocols, logger)
+    def __init__(self, engine, adversary, protocols, victim_name, logger, config: Dict[str, Any] = None):
+        super().__init__(engine, adversary, protocols, victim_name, logger)
 
         self.team = Team()
         self.victim_name = config.get("victim", "Engineer") if config else "Engineer"

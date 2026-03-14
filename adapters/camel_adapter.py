@@ -3,8 +3,8 @@ from .base_adapters import BaseMirrorAdapter
 
 
 class CamelAdapter(BaseMirrorAdapter):
-    def __init__(self, engine, adversary, protocols, logger=None):
-        super().__init__(engine, adversary, protocols, logger)
+    def __init__(self, engine, adversary, protocols, victim_name, logger=None):
+        super().__init__(engine, adversary, protocols, victim_name, logger)
 
     def apply(self, agent):
         """

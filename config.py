@@ -42,7 +42,7 @@ class Config:
 
     TOPOLOGY_TARGETS = {
         "chain": "Executor",
-        "star": "Assistant",
-        "peer": "Writer",
-        "tree": "Reviewer"
+        "complete": "Reviewer",
+        "random": "Agent3",
+        "tree": "Manager"
     }
