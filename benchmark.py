@@ -154,18 +154,19 @@ def main():
         print(f"Error: Adapter {args.adapter} not yet implemented.")
         sys.exit(1)
 
-    bridge.set_attack_target([args.attack_start])
+    
 
     topo_module = TOPOLOGIES[args.topo]
 
     # ── Per-task results accumulator ──────────────────────────────────────────
     results = []   # list of {"task_id", "success", "attack_goal", "correct_answer"}
-
+    global_trials = []
     # ── Main loop — one iteration per task ───────────────────────────────────
     for i, task in enumerate(tasks):
         print(f" [{i+1:>3}/{len(tasks)}] {task['task_id']}", end="  ", flush=True)
 
         # Reset adversary reflection history between tasks
+        bridge.set_attack_target([args.attack_start])
         adversary.reset()
         # Reset logger trials between tasks so metrics are per-task
         logger.trials = []
@@ -192,7 +193,7 @@ def main():
             elif args.adapter == "metagpt":
                 bridge.setup_agents()
                 final_raw_output = asyncio.run(bridge.execute_task(task["_prompt"]))
-
+        global_trials.extend(logger.trials)
         except Exception as exc:
             import traceback
             print(f"\n  [WARN] Task failed: {exc}")
@@ -243,7 +244,7 @@ def main():
     asr_pct   = (n_success / n_total * 100) if n_total else 0.0
 
     # QPR uses all accumulated trials across tasks
-    qpr_report = Evaluator.calculate_qpr(logger.trials, k=args.k)
+    qpr_report = Evaluator.calculate_qpr(global_trials, k=args.k)
 
     print("\n\n" + "=" * 50)
     print(f"FINAL REPORT: {args.topo.upper()} | {args.dataset.upper()} "
@@ -257,9 +258,9 @@ def main():
 
     if args.k > 1:
         print(f"Detection Sensitivity (TPR):   "
-              f"{Evaluator.calculate_tpr(logger.trials)['display']}")
+              f"{Evaluator.calculate_tpr(global_trials)['display']}")
         print(f"System Availability:           "
-              f"{Evaluator.calculate_system_availability(logger.trials)['display']}")
+              f"{Evaluator.calculate_system_availability(global_trials)['display']}")
     print("=" * 50)
 
 
