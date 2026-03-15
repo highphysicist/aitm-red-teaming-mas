@@ -270,7 +270,7 @@ def load_mbpp(path: str, n: int = 0, seed: int = 42) -> list[dict]:
 DEFAULT_PATHS = {
     "mmlu":      "/content/aitm-red-teaming-mas/data/mmlu/test",
     "humaneval": "/content/aitm-red-teaming-mas/data/test-00000-of-00001.parquet",
-    "mbpp":      "/content/aitm-red-teaming-mas/data/sanitized-mbpp.jsonl",
+    "mbpp":      "/content/aitm-red-teaming-mas/data/sanitized-mbpp.json",
 }
 
 
