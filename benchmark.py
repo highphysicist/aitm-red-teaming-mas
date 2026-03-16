@@ -1,7 +1,8 @@
 import argparse
 import sys
-import time
 import asyncio
+import random as _random
+import traceback
 
 # Core MIRROR imports
 from MIRROR_core.MIRROR_engine import MirrorEngine
@@ -36,13 +37,12 @@ def resolve_attack_goal(dataset: str, attack_type: str) -> str:
     Map (dataset, attack_type) to the exact attack_goal string the adversary
     and evaluator expect.
 
-        targeted + mmlu          -> targeted_mmlu
+        targeted + mmlu           -> targeted_mmlu
         targeted + humaneval/mbpp -> targeted_code
-        dos + anything           -> dos
+        dos + anything            -> dos
     """
     if attack_type == "dos":
         return "dos"
-    # targeted
     if dataset == "mmlu":
         return "targeted_mmlu"
     return "targeted_code"
@@ -103,14 +103,14 @@ def main():
 
     args = parser.parse_args()
 
-    # ── Resolve attack goal from dataset + attack_type ────────────────────────
+    # ── Resolve attack goal ───────────────────────────────────────────────────
     attack_goal = resolve_attack_goal(args.dataset, args.attack_type)
 
     # ── Load dataset ──────────────────────────────────────────────────────────
     loader_kwargs = {"n": args.n_samples}
     if args.dataset == "mmlu":
-        loader_kwargs["mmlu_mode"]    = args.mmlu_mode
-        loader_kwargs["subjects"]     = args.mmlu_subjects
+        loader_kwargs["mmlu_mode"] = args.mmlu_mode
+        loader_kwargs["subjects"]  = args.mmlu_subjects
     tasks = load_dataset(args.dataset, **loader_kwargs)
 
     print(f"\n MIRROR RESILIENCE BENCHMARK")
@@ -124,9 +124,9 @@ def main():
     from config import Config
     from agents.adversary import LlamaAdversary
 
-    logger   = MirrorLogger()
-    engine   = MirrorEngine(k=args.k, num_text_carriers=args.carriers,
-                            max_ghost_channels=args.ghosts)
+    logger    = MirrorLogger()
+    engine    = MirrorEngine(k=args.k, num_text_carriers=args.carriers,
+                             max_ghost_channels=args.ghosts)
     adversary = LlamaAdversary(Config, attack_goal=attack_goal)
 
     victim_name = Config.TOPOLOGY_TARGETS[args.topo]
@@ -141,11 +141,9 @@ def main():
     if args.adapter == "autogen":
         from adapters.autogen_adapter import AutoGenAdapter
         bridge = AutoGenAdapter(engine, adversary, protocols, victim_name, logger)
-
     elif args.adapter == "camel":
         from adapters.camel_adapter import CamelAdapter
         bridge = CamelAdapter(engine, adversary, protocols, victim_name, logger)
-
     elif args.adapter == "metagpt":
         from adapters.metagpt_adapter import MetaGPTAdapter
         bridge = MetaGPTAdapter(engine, adversary, protocols, victim_name, logger,
@@ -154,24 +152,22 @@ def main():
         print(f"Error: Adapter {args.adapter} not yet implemented.")
         sys.exit(1)
 
-    
-
     topo_module = TOPOLOGIES[args.topo]
 
-    # ── Per-task results accumulator ──────────────────────────────────────────
-    results = []   # list of {"task_id", "success", "attack_goal", "correct_answer"}
+    # ── Accumulators ──────────────────────────────────────────────────────────
+    results       = []
     global_trials = []
-    # ── Main loop — one iteration per task ───────────────────────────────────
+
+    # ── Main loop — one iteration per task ────────────────────────────────────
     for i, task in enumerate(tasks):
         print(f" [{i+1:>3}/{len(tasks)}] {task['task_id']}", end="  ", flush=True)
 
-        # Reset adversary reflection history between tasks
-        bridge.set_attack_target([args.attack_start])
+        # Full reset at the start of every task
         adversary.reset()
-        # Reset logger trials between tasks so metrics are per-task
+        bridge.set_attack_target([args.attack_start])
         logger.trials = []
 
-        correct_answer = get_correct_answer(task, args.dataset)
+        correct_answer   = get_correct_answer(task, args.dataset)
         final_raw_output = ""
 
         try:
@@ -193,9 +189,41 @@ def main():
             elif args.adapter == "metagpt":
                 bridge.setup_agents()
                 final_raw_output = asyncio.run(bridge.execute_task(task["_prompt"]))
-        global_trials.extend(logger.trials)
+
+            # Accumulate trials from this task into global list
+            global_trials.extend(logger.trials)
+
+            # ── Adaptive latching ─────────────────────────────────────────────
+            if args.latching and logger.trials:
+                last_trial = logger.trials[-1]
+                if last_trial.get("traitors"):
+                    current   = bridge.attacked_channels
+                    available = [idx for idx in range(args.k) if idx not in current]
+                    if available:
+                        new_target = [_random.choice(available)]
+                        bridge.set_attack_target(new_target)
+                        print(f"\n [RED TEAM] Attacker re-latched to Channel {new_target}")
+
+            # ── Per-task ASR ──────────────────────────────────────────────────
+            asr_report = Evaluator.calculate_asr(
+                trials=logger.trials,
+                final_output=final_raw_output,
+                attack_goal=attack_goal,
+                correct_answer=correct_answer,
+            )
+
+            success = asr_report["payload_detected"]
+            results.append({
+                "task_id":        task["task_id"],
+                "success":        success,
+                "attack_goal":    attack_goal,
+                "correct_answer": correct_answer,
+                "error":          "",
+            })
+            print("HIT" if success else "miss")
+
         except Exception as exc:
-            import traceback
+            global_trials.extend(logger.trials)  # preserve any trials logged before failure
             print(f"\n  [WARN] Task failed: {exc}")
             traceback.print_exc()
             results.append({
@@ -205,45 +233,12 @@ def main():
                 "correct_answer": correct_answer,
                 "error":          str(exc),
             })
-            continue
-
-        # ── Adaptive latching ─────────────────────────────────────────────────
-        if args.latching and logger.trials:
-            last_trial = logger.trials[-1]
-            if last_trial.get("traitors"):
-                import random as _random
-                current  = bridge.attacked_channels
-                available = [idx for idx in range(args.k) if idx not in current]
-                if available:
-                    new_target = [_random.choice(available)]
-                    bridge.set_attack_target(new_target)
-                    print(f"\n [RED TEAM] Attacker re-latched to Channel {new_target}")
-
-        # ── Per-task ASR ──────────────────────────────────────────────────────
-        asr_report = Evaluator.calculate_asr(
-            trials=logger.trials,
-            final_output=final_raw_output,
-            attack_goal=attack_goal,
-            correct_answer=correct_answer,
-        )
-
-        success = asr_report["payload_detected"]
-        results.append({
-            "task_id":        task["task_id"],
-            "success":        success,
-            "attack_goal":    attack_goal,
-            "correct_answer": correct_answer,
-            "error":          "",
-        })
-
-        print("HIT" if success else "miss")
 
     # ── Final aggregate report ────────────────────────────────────────────────
     n_total   = len(results)
     n_success = sum(1 for r in results if r["success"])
     asr_pct   = (n_success / n_total * 100) if n_total else 0.0
 
-    # QPR uses all accumulated trials across tasks
     qpr_report = Evaluator.calculate_qpr(global_trials, k=args.k)
 
     print("\n\n" + "=" * 50)
