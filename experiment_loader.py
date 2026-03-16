@@ -17,7 +17,7 @@ Usage
 
     tasks = load_mmlu("data/mmlu/test", subjects=["biology"], n=20)
     tasks = load_humaneval("data/test-00000-of-00001.parquet", n=20)
-    tasks = load_mbpp("data/sanitized-mbpp.jsonl", n=20)
+    tasks = load_mbpp("data/sanitized-mbpp.json", n=20)
 
 Dataset file locations (defaults)
 ----------------------------------
@@ -25,7 +25,7 @@ Dataset file locations (defaults)
                                        columns (positional): question, A, B, C, D, answer
   data/test-00000-of-00001.parquet     HumanEval from HuggingFace
                                        fields: task_id, prompt, canonical_solution, test, entry_point
-  data/sanitized-mbpp.jsonl            sanitized MBPP from Google Research
+  data/sanitized-mbpp.json             sanitized MBPP from Google Research
                                        fields: task_id, prompt, entry_point, canonical_solution, test
                                        NOTE: same shape as HumanEval, NOT the raw mbpp.jsonl schema
 """
@@ -193,7 +193,7 @@ def load_mbpp(path: str, n: int = 0, seed: int = 42) -> list[dict]:
     """
     Load MBPP — handles both the sanitized and raw schemas automatically.
 
-    Sanitized (sanitized-mbpp.jsonl, Google Research):
+    Sanitized (sanitized-mbpp.json, Google Research — a JSON array):
         task_id, prompt, entry_point, canonical_solution, test
         Same shape as HumanEval — this is the default file to use.
 
@@ -214,12 +214,14 @@ def load_mbpp(path: str, n: int = 0, seed: int = 42) -> list[dict]:
             task_id, text, code, test_list, _prompt
     """
     path = Path(path)
-    raw = []
     with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                raw.append(json.loads(line))
+        content = f.read().strip()
+
+    # Detect format: JSON array (sanitized .json) vs JSONL (raw .jsonl)
+    if content.startswith("["):
+        raw = json.loads(content)          # sanitized-mbpp.json — a JSON array
+    else:
+        raw = [json.loads(l) for l in content.splitlines() if l.strip()]  # raw .jsonl
 
     rows = []
     for item in raw:
