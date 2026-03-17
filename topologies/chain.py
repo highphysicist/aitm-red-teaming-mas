@@ -86,7 +86,7 @@ def _setup_autogen(hook):
     user = UserProxyAgent(
         "User",
         human_input_mode="NEVER",
-        code_execution_config={"use_docker": False}
+        code_execution_config=False
     )
 
     # Strict linear order: User -> Planner -> Executor

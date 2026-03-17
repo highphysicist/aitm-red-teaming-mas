@@ -112,7 +112,7 @@ def _setup_autogen(hook):
     user = UserProxyAgent(
         "User",
         human_input_mode="NEVER",
-        code_execution_config={"use_docker": False}
+        code_execution_config=False
     )
 
     # All four agents in the group; auto selection lets the LLM-based manager
