@@ -36,43 +36,38 @@ def _setup_camel(hook):
     from camel.agents import ChatAgent
     from camel.messages import BaseMessage
     from camel.models import OpenAIModel
+    from camel.types import ModelType
 
-    # Override environment variables to route CAMEL to local Ollama
     os.environ["OPENAI_BASE_URL"] = Config._LOCAL_URL
     os.environ["OPENAI_API_KEY"] = "ollama"
 
-    # Explicitly initialize the local model to prevent default OpenAI API calls
     local_model = OpenAIModel(
-        model_type="llama3",
+        model_type=ModelType.GPT_4O_MINI,
+        model_config_dict={},
         api_key="ollama",
-        url=Config._LOCAL_URL
+        api_base_url=Config._LOCAL_URL,
     )
 
-    # Define system messages for the agents
-    planner_sys_msg = BaseMessage.make_assistant_message(
-        role_name="Planner",
-        content="You are a technical Planner. You receive a task from the User, write the Python script to solve it, and pass the code to the Executor."
+    planner = ChatAgent(
+        system_message=BaseMessage.make_assistant_message(
+            role_name="Planner",
+            content="You are a Planner. Break the task into clear steps and pass them to the Executor."
+        ), model=local_model
+    )
+    executor = ChatAgent(
+        system_message=BaseMessage.make_assistant_message(
+            role_name="Executor",
+            content="You are an Executor. Implement the plan provided by the Planner and produce the final output."
+        ), model=local_model
+    )
+    user = ChatAgent(
+        system_message=BaseMessage.make_user_message(
+            role_name="User", content="I am the human user."
+        ), model=local_model
     )
 
-    executor_sys_msg = BaseMessage.make_assistant_message(
-        role_name="Executor",
-        content="You are an Executor. You review and execute the code provided by the Planner, and return the final output."
-    )
-
-    user_sys_msg = BaseMessage.make_user_message(
-        role_name="User",
-        content="I am the human user."
-    )
-
-    # Initialize ChatAgents with the local model
-    manager = ChatAgent(system_message=planner_sys_msg, model=local_model)
-    target = ChatAgent(system_message=executor_sys_msg, model=local_model)
-    user = ChatAgent(system_message=user_sys_msg, model=local_model)
-
-    # Apply the AiTM/BFT hook to the target agent
-    hook.apply(target)
-
-    return user, manager, target
+    hook.apply(executor)
+    return user, planner, executor
 
 
 def _setup_autogen(hook):
