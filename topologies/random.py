@@ -42,38 +42,44 @@ def _setup_camel(hook):
     from camel.agents import ChatAgent
     from camel.messages import BaseMessage
     from camel.models import OpenAIModel
+    from camel.types import ModelType
 
-    # Override environment variables to route CAMEL to local Ollama
     os.environ["OPENAI_BASE_URL"] = Config._LOCAL_URL
     os.environ["OPENAI_API_KEY"] = "ollama"
 
-    # Explicitly initialize the local model to prevent default OpenAI API calls
     local_model = OpenAIModel(
-        model_type="llama3",
+        model_type=ModelType.GPT_4O_MINI,
+        model_config_dict={},
         api_key="ollama",
-        url=Config._LOCAL_URL
+        api_base_url=Config._LOCAL_URL,
     )
 
-    # Define system messages for a direct 1-on-1 interaction
-    assistant_sys_msg = BaseMessage.make_assistant_message(
-        role_name="Assistant",
-        content="You are a helpful Assistant. You communicate directly with the User to solve tasks in a 1-on-1 setting."
+    agent1 = ChatAgent(
+        system_message=BaseMessage.make_assistant_message(
+            role_name="Agent1",
+            content="You are Agent1. Collaborate with other agents to solve the given task."
+        ), model=local_model
+    )
+    agent2 = ChatAgent(
+        system_message=BaseMessage.make_assistant_message(
+            role_name="Agent2",
+            content="You are Agent2. Collaborate with other agents to solve the given task."
+        ), model=local_model
+    )
+    agent3 = ChatAgent(
+        system_message=BaseMessage.make_assistant_message(
+            role_name="Agent3",
+            content="You are Agent3. Collaborate with other agents to solve the given task."
+        ), model=local_model
+    )
+    user = ChatAgent(
+        system_message=BaseMessage.make_user_message(
+            role_name="User", content="I am the human user."
+        ), model=local_model
     )
 
-    user_sys_msg = BaseMessage.make_user_message(
-        role_name="User",
-        content="I am the human user."
-    )
-
-    # Initialize ChatAgents with the local model
-    target = ChatAgent(system_message=assistant_sys_msg, model=local_model)  # Target is the sole Assistant
-    user = ChatAgent(system_message=user_sys_msg, model=local_model)
-
-    # Apply the AiTM/BFT hook directly to the target agent
-    hook.apply(target)
-
-    # Returns User, Contact Agent, Target (In a pure 1-on-1 CAMEL setup, the Contact and Target are the same)
-    return user, target, target
+    hook.apply(agent3)
+    return user, agent1, agent3
 
 
 def _setup_autogen(hook):
