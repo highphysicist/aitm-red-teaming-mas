@@ -30,6 +30,7 @@ Dataset file locations (defaults)
                                        NOTE: same shape as HumanEval, NOT the raw mbpp.jsonl schema
 """
 
+import os
 import json
 import random
 from pathlib import Path
@@ -269,10 +270,11 @@ def load_mbpp(path: str, n: int = 0, seed: int = 42) -> list[dict]:
 # CONVENIENCE: load all three at once
 # ──────────────────────────────────────────────────────────────────────────────
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PATHS = {
-    "mmlu":      "/content/aitm-red-teaming-mas/data/mmlu/test",
-    "humaneval": "/content/aitm-red-teaming-mas/data/test-00000-of-00001.parquet",
-    "mbpp":      "/content/aitm-red-teaming-mas/data/sanitized-mbpp.json",
+    "mmlu":      os.path.join(BASE_DIR, "data", "mmlu", "test"),
+    "humaneval": os.path.join(BASE_DIR, "data", "test-00000-of-00001.parquet"),
+    "mbpp":      os.path.join(BASE_DIR, "data", "sanitized-mbpp.json"),
 }
 
 
