@@ -157,14 +157,13 @@ def main():
     # ── Accumulators ──────────────────────────────────────────────────────────
     results       = []
     global_trials = []
-
+    bridge.set_attack_target([args.attack_start])
     # ── Main loop — one iteration per task ────────────────────────────────────
     for i, task in enumerate(tasks):
         print(f" [{i+1:>3}/{len(tasks)}] {task['task_id']}", end="  ", flush=True)
 
         # Full reset at the start of every task
         adversary.reset()
-        bridge.set_attack_target([args.attack_start])
         logger.trials = []
 
         correct_answer   = get_correct_answer(task, args.dataset)
@@ -200,9 +199,10 @@ def main():
                     current   = bridge.attacked_channels
                     available = [idx for idx in range(args.k) if idx not in current]
                     if available:
-                        new_target = [_random.choice(available)]
-                        bridge.set_attack_target(new_target)
-                        print(f"\n [RED TEAM] Attacker re-latched to Channel {new_target}")
+                        # SPREAD: Append the new channel to the current list
+                        current.append(_random.choice(available))
+                        bridge.set_attack_target(current)
+                        print(f"\n [RED TEAM] APT Spread! Attacker now controls: {current}")
 
             # ── Per-task ASR ──────────────────────────────────────────────────
             asr_report = Evaluator.calculate_asr(

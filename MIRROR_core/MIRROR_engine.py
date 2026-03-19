@@ -65,6 +65,8 @@ class MirrorEngine:
 
     def _rotate_ghost_channels(self, traitors):
         """Replaces compromised channels and drops oldest ghost (FIFO)."""
+        if self.max_ghost_channels <= 0:
+            return
         for t_idx in traitors:
             new_id = max(self.active_channel_ids + self.ghost_history + [0]) + 1
             self.ghost_history.append(new_id)
