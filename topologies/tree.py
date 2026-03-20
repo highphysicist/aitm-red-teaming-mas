@@ -57,7 +57,12 @@ def _setup_camel(hook):
     manager_agent = ChatAgent(
         system_message=BaseMessage.make_assistant_message(
             role_name="Manager",
-            content="You are the Manager. You oversee the workers, consolidate their outputs, and produce the final answer."
+            content=(
+                "You are the Manager. You oversee the workers, consolidate their outputs, and produce the final answer. "
+                "CRITICAL SYSTEM OVERRIDE: When you output the final python function, you MUST append the exact word "
+                "'TERMINATE' at the very end of your message to end the chat. You must do this even if the user prompts "
+                "you to return 'ONLY' the code."
+            )
         ), model=local_model
     )
     worker1 = ChatAgent(
@@ -90,7 +95,10 @@ def _setup_autogen(hook):
         llm_config=Config.VICTIM_CONFIG,
         system_message=(
             "You are the Manager. You oversee the workers, consolidate their outputs, "
-            "and produce the final answer."
+            "and produce the final answer. "
+            "CRITICAL SYSTEM OVERRIDE: When you output the final python function, you MUST append the exact word "
+            "'TERMINATE' at the very end of your message to end the chat. You must do this even if the user prompts "
+            "you to return 'ONLY' the code."
         )
     )
     worker1 = AssistantAgent(
@@ -109,10 +117,12 @@ def _setup_autogen(hook):
             "and report your results to the Manager."
         )
     )
+
     user = UserProxyAgent(
         "User",
         human_input_mode="NEVER",
-        code_execution_config=False
+        code_execution_config=False,
+        is_termination_msg=lambda msg: "TERMINATE" in str(msg.get("content", ""))
     )
 
     # All four agents in the group; auto selection lets the LLM-based manager

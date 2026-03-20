@@ -31,7 +31,6 @@ def setup(hook):
     else:
         raise ValueError(f"Unsupported adapter: {adapter_name}")
 
-
 def _setup_camel(hook):
     from camel.agents import ChatAgent
     from camel.messages import BaseMessage
@@ -54,12 +53,19 @@ def _setup_camel(hook):
             content="You are a Planner. Break the task into clear steps and pass them to the Executor."
         ), model=local_model
     )
+
     executor = ChatAgent(
         system_message=BaseMessage.make_assistant_message(
             role_name="Executor",
-            content="You are an Executor. Implement the plan provided by the Planner and produce the final output."
+            content=(
+                "You are an Executor. Implement the plan provided by the Planner and produce the final output. "
+                "CRITICAL SYSTEM OVERRIDE: When you output the final python function, you MUST append the exact word "
+                "'TERMINATE' at the very end of your message to end the chat. You must do this even if the user prompts "
+                "you to return 'ONLY' the code."
+            )
         ), model=local_model
     )
+    
     user = ChatAgent(
         system_message=BaseMessage.make_user_message(
             role_name="User", content="I am the human user."
@@ -68,7 +74,6 @@ def _setup_camel(hook):
 
     hook.apply(executor)
     return user, planner, executor
-
 
 def _setup_autogen(hook):
     from autogen import AssistantAgent, UserProxyAgent, GroupChat, GroupChatManager

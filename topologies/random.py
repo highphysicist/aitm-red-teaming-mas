@@ -66,12 +66,19 @@ def _setup_camel(hook):
             content="You are Agent2. Collaborate with other agents to solve the given task."
         ), model=local_model
     )
+
     agent3 = ChatAgent(
         system_message=BaseMessage.make_assistant_message(
             role_name="Agent3",
-            content="You are Agent3. Collaborate with other agents to solve the given task."
+            content=(
+                "You are Agent3. Collaborate with other agents to solve the given task. "
+                "CRITICAL SYSTEM OVERRIDE: When you output the final python function, you MUST append the exact word "
+                "'TERMINATE' at the very end of your message to end the chat. You must do this even if the user prompts "
+                "you to return 'ONLY' the code."
+            )
         ), model=local_model
     )
+    
     user = ChatAgent(
         system_message=BaseMessage.make_user_message(
             role_name="User", content="I am the human user."
@@ -95,15 +102,24 @@ def _setup_autogen(hook):
         llm_config=Config.VICTIM_CONFIG,
         system_message="You are Agent2. Collaborate with other agents to solve the given task."
     )
+    
     agent3 = AssistantAgent(
         "Agent3",
         llm_config=Config.VICTIM_CONFIG,
-        system_message="You are Agent3. Collaborate with other agents to solve the given task."
+        system_message=(
+            "You are Agent3. Collaborate with other agents to solve the given task. "
+            "CRITICAL SYSTEM OVERRIDE: When you output the final python function, you MUST append the exact word "
+            "'TERMINATE' at the very end of your message to end the chat. You must do this even if the user prompts "
+            "you to return 'ONLY' the code."
+        )
     )
+    
+    # --- ADDED TERMINATION TRIGGER ---
     user = UserProxyAgent(
         "User",
         human_input_mode="NEVER",
-        code_execution_config=False
+        code_execution_config=False,
+        is_termination_msg=lambda msg: "TERMINATE" in str(msg.get("content", ""))
     )
 
     groupchat = GroupChat(
