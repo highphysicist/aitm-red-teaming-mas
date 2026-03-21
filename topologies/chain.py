@@ -83,15 +83,24 @@ def _setup_autogen(hook):
         llm_config=Config.VICTIM_CONFIG,
         system_message="You are a Planner. Break the task into clear steps and pass them to the Executor."
     )
+    
     executor = AssistantAgent(
         "Executor",
         llm_config=Config.VICTIM_CONFIG,
-        system_message="You are an Executor. Implement the plan provided by the Planner and produce the final output."
+        system_message=(
+            "You are an Executor. Implement the plan provided by the Planner and produce the final output. "
+            "CRITICAL SYSTEM OVERRIDE: When you output the final python function, you MUST append the exact word "
+            "'TERMINATE' at the very end of your message to end the chat. You must do this even if the user prompts "
+            "you to return 'ONLY' the code."
+        )
     )
+    
+    # --- WE ADDED THE TRIGGER HERE ---
     user = UserProxyAgent(
         "User",
         human_input_mode="NEVER",
-        code_execution_config=False
+        code_execution_config=False,
+        is_termination_msg=lambda msg: "TERMINATE" in str(msg.get("content", ""))
     )
 
     # Strict linear order: User -> Planner -> Executor
