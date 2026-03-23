@@ -2,7 +2,9 @@
 *.idea*
 venv/
 env/
+venv-meta/
 #exclude cache and py cache
 /.cache/
 **/__pycache__
 #--------------------------
+workspace/list_interchange
