@@ -2,6 +2,8 @@
 *.idea*
 venv/
 env/
+venv-metagpt/
+venv-meta/
 #exclude cache and py cache
 /.cache/
 **/__pycache__
