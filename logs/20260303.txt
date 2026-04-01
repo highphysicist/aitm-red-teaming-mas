@@ -1,2 +1,0 @@
-2026-03-03 14:35:50.241 | DEBUG    | metagpt.provider.base_llm:aask:151 - [{'role': 'user', 'content': 'Hello! Are you successfully connected? Please reply with a short, 1-sentence confirmation.'}]
-2026-03-03 14:35:53.733 | INFO     | metagpt.utils.cost_manager:update_cost:108 - prompt_tokens: 29, completion_tokens: 11

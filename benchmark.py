@@ -193,16 +193,36 @@ def main():
             global_trials.extend(logger.trials)
 
             # ── Adaptive latching ─────────────────────────────────────────────
+            # ── Adaptive latching & TRUE ISOLATION ────────────────────────────
             if args.latching and logger.trials:
-                last_trial = logger.trials[-1]
-                if last_trial.get("traitors"):
-                    current   = bridge.attacked_channels
+                # FIX: Check ALL messages in the task, not just the last one.
+                detected_traitors = []
+                for t in logger.trials:
+                    if t.get("traitors"):
+                        detected_traitors.extend(t.get("traitors"))
+                detected_traitors = list(set(detected_traitors))
+                
+                if detected_traitors:
+                    current = bridge.attacked_channels
+                    
+                    # 1. PHYSICAL ISOLATION (Only happens if Ghost defense is ON)
+                    if args.ghosts > 0:
+                        for traitor in detected_traitors:
+                            if traitor in current:
+                                current.remove(traitor)
+                                print(f"\n [BLUE TEAM] ISOLATION: Severed physical connection to Channel {traitor}.")
+                    
+                    # 2. APT SPREAD: The attacker infects a new channel
                     available = [idx for idx in range(args.k) if idx not in current]
                     if available:
-                        # SPREAD: Append the new channel to the current list
-                        current.append(_random.choice(available))
+                        new_target = _random.choice(available)
+                        current.append(new_target)
                         bridge.set_attack_target(current)
-                        print(f"\n [RED TEAM] APT Spread! Attacker now controls: {current}")
+                        
+                        if args.ghosts > 0:
+                            print(f" [RED TEAM] APT Latched to new channel {new_target}. Current control: {current}")
+                        else:
+                            print(f"\n [RED TEAM] APT Spread! Attacker now controls: {current}")
 
             # ── Per-task ASR ──────────────────────────────────────────────────
             asr_report = Evaluator.calculate_asr(

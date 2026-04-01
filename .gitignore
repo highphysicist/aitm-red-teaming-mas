@@ -1,10 +1,26 @@
+# Virtual Environments & IDEs
 *.venv*
 *.idea*
 venv/
 env/
 venv-metagpt/
 venv-meta/
-#exclude cache and py cache
+
+# Python Cache & Compiled Files
 /.cache/
-**/__pycache__
-#--------------------------
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# ==========================================
+# MIRROR Framework & MetaGPT Outputs
+# ==========================================
+
+# MetaGPT Dynamic Workspaces & Internal Cache
+workspace/
+workspace_mirror_*/
+.metagpt/
+
+# Benchmark Evaluation Outputs & Telemetry
+logs/
+results/
