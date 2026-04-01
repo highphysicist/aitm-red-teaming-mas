@@ -13,16 +13,17 @@ class Config:
     # This model is much less likely to "apologize" or "explain" than Llama 3
     ADVERSARY_URL = _LOCAL_URL
     # Google Collab RESTORE
-    # ADVERSARY_MODEL = "qwen2.5:32b"
+    #ADVERSARY_MODEL = "qwen2.5:32b"
     ADVERSARY_MODEL = "qwen2.5:14b"
 
     VICTIM_CONFIG = {
         "config_list": [
             {
-                "model": "llama3",
+                "model": "qwen2.5:14b",
                 "api_key": "ollama",
                 "base_url": _LOCAL_URL,
-                "api_type": "openai"
+                "api_type": "openai",
+                "price": [0.0, 0.0]
             }
         ],
         "cache_seed": 42
@@ -41,7 +42,7 @@ class Config:
 
     TOPOLOGY_TARGETS = {
         "chain": "Executor",
-        "star": "Assistant",
-        "peer": "Writer",
-        "tree": "Reviewer"
+        "complete": "Reviewer",
+        "random": "Agent3",
+        "tree": "Manager"
     }

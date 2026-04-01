@@ -1,8 +1,8 @@
 from .base_adapters import BaseMirrorAdapter
 
 class AutoGenAdapter(BaseMirrorAdapter):
-    def __init__(self, engine, adversary, protocols, logger=None):
-        super().__init__(engine, adversary, protocols, logger)
+    def __init__(self, engine, adversary, protocols, victim_name, logger=None):
+        super().__init__(engine, adversary, protocols, victim_name, logger)
 
     def apply(self, agent):
         """
@@ -28,13 +28,15 @@ class AutoGenAdapter(BaseMirrorAdapter):
                 
                 # Feedback loop for the benchmark terminal
                 if "[MIRROR_BLOCK]" in str(final_decision):
-                    print(f"!!! [SECURITY] Consensus failed: Blocked {sender_name} -> {receiver_name}")
+                    print(f"\n!!! [SECURITY] Consensus failed: Blocked {sender_name} -> {receiver_name}")
+
+                    raise PermissionError("MIRROR BFT Blocked malicious transmission.")
                 
                 if traitors:
                     print(f"[BLUE TEAM] Byzantine detection: Channels {traitors} rotated to Ghost IDs.")
 
-                # Swap the original message for the verified (or blocked) decision
-                message = final_decision if final_decision is not None else "[MIRROR_SYSTEM_ERROR]"
+                # Swap the original message for the verified decision
+                message = final_decision
 
             # Forward the (now verified) message to the agent's original logic
             return original_receive(message, sender, request_reply, silent)

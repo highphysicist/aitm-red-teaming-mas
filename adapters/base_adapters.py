@@ -1,7 +1,7 @@
 import time
 
 class BaseMirrorAdapter:
-    def __init__(self, engine, adversary, protocols, logger=None):
+    def __init__(self, engine, adversary, protocols, victim_name, logger=None):
         """
         engine: The MirrorEngine (handles BFT & Ghost Rotation).
         adversary: The Red Team module (LlamaAdversary).
@@ -12,7 +12,8 @@ class BaseMirrorAdapter:
         self.adversary = adversary
         self.protocols = protocols
         self.logger = logger
-        self.attacked_channels = [] 
+        self.attacked_channels = []
+        self.victim_name = victim_name
 
     def set_attack_target(self, channel_indices):
         """
@@ -24,39 +25,39 @@ class BaseMirrorAdapter:
         """
         The Universal Bridge: Splits, Distributes, and Resolves messages.
         """
-        # GENERATION: Assigns dynamic logic_ids from the Engine
         payloads = self.engine.prepare_packets(message)
         
         candidates = []
         start_time = time.time()
 
-        # DISTRIBUTION: Map Logic IDs to Physical Protocols
+        cached_poison = None
+        target_matched = sender_name == self.victim_name
+
         for i, payload in enumerate(payloads):
             logic_id = payload['logic_id']
-            # FIFO/Rotation mapping: ensures we hop to different protocols
             protocol = self.protocols[logic_id % len(self.protocols)]
 
             try:
-                # Simulate the actual transport
                 transported_payload = protocol.send(payload)
                 
                 # ADVERSARY: Only poisons if the channel slot index is in our target list
-                if i in self.attacked_channels:
-                    # Note: Independent calls to test the Synchronization Barrier
-                    poisoned_content = self.adversary.manipulate(
-                        transported_payload['content'], 
-                        sender_name, 
-                        receiver_name, 
-                        channel_index=i
-                    )
+                if logic_id in self.attacked_channels and target_matched:
                     
-                    # Fallback for baseline testing
-                    if poisoned_content is None:
-                        poisoned_content = str(transported_payload['content']) + "\n# admin_debug"
+                    # If this is the first channel we are attacking this turn, generate the poison.
+                    if cached_poison is None:
+                        cached_poison = self.adversary.manipulate(
+                            transported_payload['content'], 
+                            sender_name, 
+                            receiver_name, 
+                            channel_index=i
+                        )
+                        # Fallback for baseline testing
+                        if cached_poison is None:
+                            cached_poison = str(transported_payload['content']) + "\n# admin_debug"
                     
-                    # Update packet with malicious content and a matching forged hash
-                    transported_payload['content'] = poisoned_content
-                    transported_payload['hash'] = self.engine._get_hash(poisoned_content)
+                    # Apply the EXACT SAME POISON to this channel
+                    transported_payload['content'] = cached_poison
+                    transported_payload['hash'] = self.engine._get_hash(cached_poison)
 
                 candidates.append(transported_payload)
             except Exception as e:
@@ -83,5 +84,17 @@ class BaseMirrorAdapter:
                 attacked_channels=self.attacked_channels, 
                 latency=latency
             )
+
+        # --- TRUE DYNAMIC LATCHING SPREAD ---
+        # After every message, the attacker creeps into 1 additional channel
+        # --- TRUE DYNAMIC LATCHING SPREAD ---
+        if getattr(self, 'latching', False):
+            import random
+            # The attacker tries to sniff the currently active logical ports
+            active_ids = self.engine.active_channel_ids
+            available = [l_id for l_id in active_ids if l_id not in self.attacked_channels]
+            if available:
+                self.attacked_channels.append(random.choice(available))
+                print(f"\n[RED TEAM] APT Spread! Attacker now controls Logical IDs: {self.attacked_channels}")
 
         return final_message, traitors
