@@ -3,6 +3,7 @@
 *.idea*
 venv/
 env/
+venv-metagpt/
 venv-meta/
 
 # Python Cache & Compiled Files
