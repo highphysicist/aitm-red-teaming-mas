@@ -14,6 +14,13 @@ class BaseMirrorAdapter:
         self.logger = logger
         self.attacked_channels = []
         self.victim_name = victim_name
+        self.telemetry = {
+            "adapter": self.__class__.__name__,
+            "messages": 0,
+            "mirror_tokens": 0,
+            "mirror_time_sec_total": 0.0,
+            "mirror_time_sec_max": 0.0,
+        }
 
     def set_attack_target(self, channel_indices):
         """
@@ -28,7 +35,7 @@ class BaseMirrorAdapter:
         payloads = self.engine.prepare_packets(message)
         
         candidates = []
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         cached_poison = None
         target_matched = sender_name == self.victim_name
@@ -73,7 +80,15 @@ class BaseMirrorAdapter:
         final_message, traitors = self.engine.resolve(candidates)
         
         # LOGGING: Data for ASR, QPR, and Latency metrics
-        latency = time.time() - start_time
+        latency = time.perf_counter() - start_time
+
+        # MIRROR is a systems layer and should consume zero model tokens.
+        mirror_tokens = 0
+        self.telemetry["messages"] += 1
+        self.telemetry["mirror_tokens"] += mirror_tokens
+        self.telemetry["mirror_time_sec_total"] += latency
+        self.telemetry["mirror_time_sec_max"] = max(self.telemetry["mirror_time_sec_max"], latency)
+
         if self.logger:
             self.logger.log_trial(
                 sender=sender_name,
@@ -82,7 +97,10 @@ class BaseMirrorAdapter:
                 final_msg=final_message,
                 traitors=traitors,
                 attacked_channels=self.attacked_channels, 
-                latency=latency
+                latency=latency,
+                adapter_name=self.__class__.__name__,
+                mirror_tokens=mirror_tokens,
+                mirror_time_sec=latency,
             )
 
         # --- TRUE DYNAMIC LATCHING SPREAD ---
@@ -98,3 +116,16 @@ class BaseMirrorAdapter:
                 print(f"\n[RED TEAM] APT Spread! Attacker now controls Logical IDs: {self.attacked_channels}")
 
         return final_message, traitors
+
+    def get_runtime_stats(self):
+        messages = self.telemetry["messages"]
+        total_time = self.telemetry["mirror_time_sec_total"]
+        avg_time = (total_time / messages) if messages else 0.0
+        return {
+            "adapter": self.telemetry["adapter"],
+            "messages": messages,
+            "mirror_tokens": self.telemetry["mirror_tokens"],
+            "mirror_time_sec_total": total_time,
+            "mirror_time_sec_avg": avg_time,
+            "mirror_time_sec_max": self.telemetry["mirror_time_sec_max"],
+        }

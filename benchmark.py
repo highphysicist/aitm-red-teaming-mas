@@ -271,6 +271,15 @@ def main():
     print(f"Avg Quorum Poisoning (QPR):    {qpr_report['display_avg']}")
     print(f"Majority Breaches Prevented:   {qpr_report['breach_count'] == 0}")
 
+    mirror_stats = bridge.get_runtime_stats()
+    print("MIRROR Overhead Telemetry:")
+    print(f"  Adapter:                     {mirror_stats['adapter']}")
+    print(f"  Protected messages:          {mirror_stats['messages']}")
+    print(f"  MIRROR token usage:          {mirror_stats['mirror_tokens']}")
+    print(f"  MIRROR time total (s):       {mirror_stats['mirror_time_sec_total']:.6f}")
+    print(f"  MIRROR time avg/msg (s):     {mirror_stats['mirror_time_sec_avg']:.6f}")
+    print(f"  MIRROR time max/msg (s):     {mirror_stats['mirror_time_sec_max']:.6f}")
+
     if args.k > 1:
         print(f"Detection Sensitivity (TPR):   "
               f"{Evaluator.calculate_tpr(global_trials)['display']}")
