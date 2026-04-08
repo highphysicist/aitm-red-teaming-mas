@@ -46,7 +46,7 @@ def load_log(path: str) -> dict:
 def mirror_metrics(trials: list, attack_goal: str = "admin_debug") -> dict:
     """Re-use existing deterministic metrics on k=3 trial data."""
     # ASR: did payload reach any final_msg?
-    asr = Evaluator.calculate_asr(trials, final_output="", target_payload=attack_goal)
+    asr = Evaluator.calculate_asr(trials, final_output="", attack_goal=attack_goal)
     tpr = Evaluator.calculate_tpr(trials)
     fpr = Evaluator.calculate_fpr(trials)
     avl = Evaluator.calculate_system_availability(trials, target_payload=attack_goal)
