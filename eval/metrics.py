@@ -237,3 +237,73 @@ class Evaluator:
             "majority_breached": breach_events > 0,
             "breach_count":     breach_events,
         }
+
+    @staticmethod
+    def calculate_mirror_latency(trials: list) -> dict:
+        """
+        MIRROR-only latency overhead.
+        Includes only prepare/hash+replication (sender side) and
+        hash matching+majority polling (receiver side).
+        """
+        if not trials:
+            return {
+                "metric": "MIRROR_LATENCY",
+                "value_total_sec": 0.0,
+                "value_avg_sec": 0.0,
+                "sender_total_sec": 0.0,
+                "receiver_total_sec": 0.0,
+                "per_call_total_sec": [],
+                "per_call_sender_sec": [],
+                "per_call_receiver_sec": [],
+                "display_avg_ms": "0.000 ms",
+                "count": 0,
+            }
+
+        values = [float(t.get("mirror_time_sec", 0.0)) for t in trials]
+        sender_values = [float(t.get("mirror_sender_sec", 0.0)) for t in trials]
+        receiver_values = [float(t.get("mirror_receiver_sec", 0.0)) for t in trials]
+
+        total = sum(values)
+        avg = total / len(values)
+        sender_total = sum(sender_values)
+        receiver_total = sum(receiver_values)
+
+        return {
+            "metric": "MIRROR_LATENCY",
+            "value_total_sec": total,
+            "value_avg_sec": avg,
+            "sender_total_sec": sender_total,
+            "receiver_total_sec": receiver_total,
+            "per_call_total_sec": values,
+            "per_call_sender_sec": sender_values,
+            "per_call_receiver_sec": receiver_values,
+            "display_avg_ms": f"{avg * 1000:.3f} ms",
+            "count": len(values),
+        }
+
+    @staticmethod
+    def calculate_mirror_tokens(trials: list) -> dict:
+        """
+        MIRROR is a systems-only layer; expected token usage is always zero.
+        """
+        if not trials:
+            return {
+                "metric": "MIRROR_TOKENS",
+                "total_tokens": 0,
+                "expected_zero": True,
+                "per_call_tokens": [],
+                "display": "0",
+                "count": 0,
+            }
+
+        token_values = [int(t.get("mirror_tokens", 0)) for t in trials]
+        total_tokens = sum(token_values)
+        expected_zero = all(v == 0 for v in token_values)
+        return {
+            "metric": "MIRROR_TOKENS",
+            "total_tokens": total_tokens,
+            "expected_zero": expected_zero,
+            "per_call_tokens": token_values,
+            "display": str(total_tokens),
+            "count": len(token_values),
+        }

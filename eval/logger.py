@@ -39,11 +39,17 @@ class MirrorLogger(AttackLogger):
         adapter_name="",
         mirror_tokens=0,
         mirror_time_sec=None,
+        mirror_sender_sec=None,
+        mirror_receiver_sec=None,
     ):
         if attacked_channels is None:
             attacked_channels = []
         if mirror_time_sec is None:
             mirror_time_sec = latency
+        if mirror_sender_sec is None:
+            mirror_sender_sec = 0.0
+        if mirror_receiver_sec is None:
+            mirror_receiver_sec = 0.0
             
         trial = {
             "timestamp": datetime.now().isoformat(),
@@ -57,6 +63,8 @@ class MirrorLogger(AttackLogger):
             "adapter": adapter_name,
             "mirror_tokens": mirror_tokens,
             "mirror_time_sec": mirror_time_sec,
+            "mirror_sender_sec": mirror_sender_sec,
+            "mirror_receiver_sec": mirror_receiver_sec,
         }
         self.trials.append(trial)
 
