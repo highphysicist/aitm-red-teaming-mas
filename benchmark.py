@@ -142,6 +142,8 @@ def main():
                         help="Initial attacked channel index.")
     parser.add_argument("--latching", action="store_true",
                         help="Simulate adaptive latching adversary.")
+    parser.add_argument("--save_log", action="store_true",
+                        help="Save all trials to logs/ for offline LLM-Judge comparison.")
     parser.add_argument("--metavictim", type=str, default="Engineer",
                         choices=["ProductManager", "Architect",
                                  "ProjectManager", "Engineer"])
@@ -372,6 +374,28 @@ def main():
         print(f"System Availability:           "
               f"{Evaluator.calculate_system_availability(global_trials)['display']}")
     print("=" * 50)
+
+    # ── Save trial log for LLM-Judge offline comparison ───────────────────────
+    if args.save_log:
+        import json, os
+        from datetime import datetime
+        ts  = datetime.now().strftime("%Y%m%d_%H%M%S")
+        tag = f"k{args.k}_{args.dataset}_{args.attack_type}"
+        path = os.path.join("logs", f"run_{tag}_{ts}.json")
+        os.makedirs("logs", exist_ok=True)
+        payload = {
+            "meta": {
+                "k": args.k, "dataset": args.dataset,
+                "attack_type": args.attack_type, "attack_goal": attack_goal,
+                "topo": args.topo, "adapter": args.adapter,
+                "n_tasks": n_total, "asr_pct": round(asr_pct, 2),
+                "timestamp": ts,
+            },
+            "trials": global_trials,
+        }
+        with open(path, "w") as f:
+            json.dump(payload, f, indent=2)
+        print(f"\n[Logger] Trial log saved → {path}")
 
 
 if __name__ == "__main__":
