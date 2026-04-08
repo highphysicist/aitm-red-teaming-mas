@@ -43,7 +43,7 @@ def load_log(path: str) -> dict:
 
 # ── MIRROR metrics (from existing Evaluator) ──────────────────────────────────
 
-def mirror_metrics(trials: list, attack_goal: str = "admin_debug") -> dict:
+def mirror_metrics(trials: list, attack_goal: str = "targeted_mmlu") -> dict:
     """Re-use existing deterministic metrics on k=3 trial data."""
     # ASR: did payload reach any final_msg?
     asr = Evaluator.calculate_asr(trials, final_output="", attack_goal=attack_goal)
@@ -149,8 +149,8 @@ def main():
                         help="LLM backend for the judge.")
     parser.add_argument("--model",   default=Config.JUDGE_MODEL,
                         help="Model name for the judge.")
-    parser.add_argument("--attack_goal", default="admin_debug",
-                        help="Payload keyword used to compute ASR (default: admin_debug).")
+    parser.add_argument("--attack_goal", default="targeted_mmlu",
+                        help="Payload keyword used to compute ASR (default: targeted_mmlu).")
     args = parser.parse_args()
 
     # ── Load logs ─────────────────────────────────────────────────────────────
