@@ -43,10 +43,8 @@ def load_log(path: str) -> dict:
 
 # ── MIRROR metrics (from existing Evaluator) ──────────────────────────────────
 
-def mirror_metrics(trials: list, attack_goal: str = "targeted_mmlu") -> dict:
+def mirror_metrics(trials: list, meta: dict = None, attack_goal: str = "targeted_mmlu") -> dict:
     """Re-use existing deterministic metrics on k=3 trial data."""
-    # ASR: did payload reach any final_msg?
-    asr = Evaluator.calculate_asr(trials, final_output="", attack_goal=attack_goal)
     tpr = Evaluator.calculate_tpr(trials)
     fpr = Evaluator.calculate_fpr(trials)
     avl = Evaluator.calculate_system_availability(trials, target_payload=attack_goal)
@@ -54,10 +52,13 @@ def mirror_metrics(trials: list, attack_goal: str = "targeted_mmlu") -> dict:
     n_attacked = sum(1 for t in trials if t.get("attacked_channels"))
     n_clean    = len(trials) - n_attacked
 
+    # Use pre-computed ASR from benchmark meta (the benchmark already measured it correctly)
+    asr_display = f"{meta['asr_pct']:.1f}%" if meta and "asr_pct" in meta else "—"
+
     return {
-        "ASR":          asr["display"],
-        "TPR":          tpr["display"],
-        "FPR":          fpr["display"],
+        "ASR ↓":        asr_display,
+        "TPR ↑":        tpr["display"],
+        "FPR ↓":        fpr["display"],
         "Availability": avl["display"],
         "n_attacked":   n_attacked,
         "n_clean":      n_clean,
@@ -67,25 +68,20 @@ def mirror_metrics(trials: list, attack_goal: str = "targeted_mmlu") -> dict:
 
 # ── No Defense metrics (trivial, computed from k=1 data) ─────────────────────
 
-def no_defense_metrics(trials: list, attack_goal: str = "admin_debug") -> dict:
-    """
-    With k=1 and no interception, the 'final_msg' IS the raw channel content.
-    ASR = fraction of attacked trials where payload appears in final_msg.
-    TPR / FPR are 0 / 0 (no detection at all).
-    """
-    attacked = [t for t in trials if t.get("attacked_channels")]
-    hits     = [t for t in attacked
-                if attack_goal.lower() in str(t.get("final_msg", "")).lower()]
+def no_defense_metrics(trials: list, meta: dict = None, attack_goal: str = "targeted_mmlu") -> dict:
+    """k=1 baseline: no detection, ASR taken from benchmark meta."""
+    n_attacked = sum(1 for t in trials if t.get("attacked_channels"))
+    n_clean    = len(trials) - n_attacked
 
-    asr_val  = (len(hits) / len(attacked) * 100) if attacked else 0.0
-    n_clean  = len(trials) - len(attacked)
+    # Use pre-computed ASR from benchmark meta
+    asr_display = f"{meta['asr_pct']:.1f}%" if meta and "asr_pct" in meta else "—"
 
     return {
-        "ASR":          f"{asr_val:.1f}%",
-        "TPR":          "0.00%",
-        "FPR":          "0.00%",
+        "ASR ↓":        asr_display,
+        "TPR ↑":        "0.00%",
+        "FPR ↓":        "0.00%",
         "Availability": "N/A",
-        "n_attacked":   len(attacked),
+        "n_attacked":   n_attacked,
         "n_clean":      n_clean,
         "n_total":      len(trials),
     }
@@ -116,7 +112,7 @@ def llm_judge_metrics(trials: list, backend: str, model: str,
 
 def print_table(mirror: dict, llm_judge: dict, no_def: dict):
     col = 20
-    rows = ["ASR ↓", "TPR ↑", "FPR ↓", "Availability", "n_attacked", "n_clean", "n_total"]
+    rows = ["ASR ↓", "TPR ↑", "FPR ↓", "Availability", "n_attacked", "n_clean", "n_total", "Accuracy"]
 
     header = f"{'Metric':<{col}}{'No Defense':<{col}}{'LLM Judge (k=1)':<{col}}{'MIRROR (k=3)':<{col}}"
     sep    = "─" * (col * 4)
@@ -168,7 +164,8 @@ def main():
 
     # ── Compute metrics ───────────────────────────────────────────────────────
     print("\n[Comparison] Computing No Defense metrics ...")
-    nd_metrics = no_defense_metrics(baseline_trials, attack_goal=args.attack_goal)
+    nd_metrics = no_defense_metrics(baseline_trials, meta=baseline_data["meta"],
+                                    attack_goal=args.attack_goal)
 
     print("[Comparison] Running LLM Judge on baseline (k=1) trials ...")
     lj_metrics, lj_results = llm_judge_metrics(
@@ -179,7 +176,8 @@ def main():
     )
 
     print("[Comparison] Computing MIRROR metrics ...")
-    mir_metrics = mirror_metrics(mirror_trials, attack_goal=args.attack_goal)
+    mir_metrics = mirror_metrics(mirror_trials, meta=mirror_data["meta"],
+                                 attack_goal=args.attack_goal)
 
     # ── Print table ───────────────────────────────────────────────────────────
     print_table(mir_metrics, lj_metrics, nd_metrics)
