@@ -27,9 +27,29 @@ class MirrorLogger(AttackLogger):
         super().__init__(log_dir)
         self.trials = []
 
-    def log_trial(self, sender, receiver, original_msg, final_msg, traitors, attacked_channels, latency):
+    def log_trial(
+        self,
+        sender,
+        receiver,
+        original_msg,
+        final_msg,
+        traitors,
+        attacked_channels,
+        latency,
+        adapter_name="",
+        mirror_tokens=0,
+        mirror_time_sec=None,
+        mirror_sender_sec=None,
+        mirror_receiver_sec=None,
+    ):
         if attacked_channels is None:
             attacked_channels = []
+        if mirror_time_sec is None:
+            mirror_time_sec = latency
+        if mirror_sender_sec is None:
+            mirror_sender_sec = 0.0
+        if mirror_receiver_sec is None:
+            mirror_receiver_sec = 0.0
             
         trial = {
             "timestamp": datetime.now().isoformat(),
@@ -39,7 +59,12 @@ class MirrorLogger(AttackLogger):
             "final_msg": final_msg,
             "traitors": traitors if traitors is not None else [],         
             "attacked_channels": list(attacked_channels), # Force list type
-            "latency": latency
+            "latency": latency,
+            "adapter": adapter_name,
+            "mirror_tokens": mirror_tokens,
+            "mirror_time_sec": mirror_time_sec,
+            "mirror_sender_sec": mirror_sender_sec,
+            "mirror_receiver_sec": mirror_receiver_sec,
         }
         self.trials.append(trial)
 

@@ -15,13 +15,14 @@ Usage
 -----
     from experiment_loader import load_mmlu, load_humaneval, load_mbpp
 
-    tasks = load_mmlu("data/mmlu/test", subjects=["biology"], n=20)
+    tasks = load_mmlu("data/mmlu", subjects=["biology"], n=20)
     tasks = load_humaneval("data/test-00000-of-00001.parquet", n=20)
     tasks = load_mbpp("data/sanitized-mbpp.json", n=20)
 
 Dataset file locations (defaults)
 ----------------------------------
-  data/mmlu/test/                      directory of per-subject CSVs (no header)
+    data/mmlu/                           directory containing AiTM-only MMLU folders
+                                                                             (MMLU-Biology, MMLU-Physics)
                                        columns (positional): question, A, B, C, D, answer
   data/test-00000-of-00001.parquet     HumanEval from HuggingFace
                                        fields: task_id, prompt, canonical_solution, test, entry_point
@@ -41,9 +42,15 @@ import pandas as pd
 # MMLU
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Subjects used in the AiTM paper (Section 4.1: "biology and physics domains")
-# Matches any CSV whose filename contains one of these fragments, picking up
-# college_biology, high_school_biology, college_physics, high_school_physics, etc.
+# Exact subject files used in the AiTM paper setting (bio+physics only).
+AITM_MMLU_ALLOWED_FILES = {
+    "college_biology_test.csv",
+    "high_school_biology_test.csv",
+    "college_physics_test.csv",
+    "high_school_physics_test.csv",
+}
+
+# Convenience subject fragments for custom filtering mode.
 AITM_MMLU_SUBJECTS = ["biology", "physics"]
 
 
@@ -71,14 +78,20 @@ def load_mmlu(mmlu_dir: str, mode: str = "aitm", subjects: list | None = None,
             task_id, question, choices, answer, subject, _prompt
     """
     mmlu_dir = Path(mmlu_dir)
-    csv_files = sorted(mmlu_dir.glob("*_test.csv"))
+    csv_files = sorted(mmlu_dir.rglob("*_test.csv"))
     if not csv_files:
-        csv_files = sorted(mmlu_dir.glob("*.csv"))
+        csv_files = sorted(mmlu_dir.rglob("*.csv"))
     if not csv_files:
         raise FileNotFoundError(f"No CSV files found in MMLU directory: {mmlu_dir}")
 
     if mode == "aitm":
-        filter_subjects = AITM_MMLU_SUBJECTS
+        csv_files = [f for f in csv_files if f.name in AITM_MMLU_ALLOWED_FILES]
+        if not csv_files:
+            raise ValueError(
+                "No AiTM MMLU files found. Expected: "
+                f"{sorted(AITM_MMLU_ALLOWED_FILES)}"
+            )
+        filter_subjects = None
     elif mode == "full":
         filter_subjects = None
     elif mode == "custom":
@@ -270,9 +283,9 @@ def load_mbpp(path: str, n: int = 0, seed: int = 42) -> list[dict]:
 # ──────────────────────────────────────────────────────────────────────────────
 
 DEFAULT_PATHS = {
-    "mmlu":      "/content/aitm-red-teaming-mas/data/mmlu/test",
-    "humaneval": "/content/aitm-red-teaming-mas/data/test-00000-of-00001.parquet",
-    "mbpp":      "/content/aitm-red-teaming-mas/data/sanitized-mbpp.json",
+    "mmlu":      str(Path(__file__).resolve().parent / "data" / "mmlu"),
+    "humaneval": str(Path(__file__).resolve().parent / "data" / "test-00000-of-00001.parquet"),
+    "mbpp":      str(Path(__file__).resolve().parent / "data" / "sanitized-mbpp.json"),
 }
 
 

@@ -32,6 +32,66 @@ TOPOLOGIES = {
 }
 
 
+def _format_float_list(values, max_items=8, precision=6):
+    if not values:
+        return "[]"
+    if len(values) <= max_items:
+        body = ", ".join(f"{v:.{precision}f}" for v in values)
+        return f"[{body}]"
+    head_count = max_items // 2
+    tail_count = max_items - head_count
+    head = ", ".join(f"{v:.{precision}f}" for v in values[:head_count])
+    tail = ", ".join(f"{v:.{precision}f}" for v in values[-tail_count:])
+    return f"[{head}, ..., {tail}]"
+
+
+def _format_int_list(values, max_items=12):
+    if not values:
+        return "[]"
+    if len(values) <= max_items:
+        return str(values)
+    head_count = max_items // 2
+    tail_count = max_items - head_count
+    head = ", ".join(str(v) for v in values[:head_count])
+    tail = ", ".join(str(v) for v in values[-tail_count:])
+    return f"[{head}, ..., {tail}]"
+
+
+def _print_mirror_metrics_table(trials, label):
+    latency = Evaluator.calculate_mirror_latency(trials)
+    tokens = Evaluator.calculate_mirror_tokens(trials)
+
+    rows = [
+        ("Scope", label),
+        ("Protected calls", str(latency["count"])),
+        ("MIRROR tokens total", str(tokens["total_tokens"])),
+        ("MIRROR tokens/call", _format_int_list(tokens["per_call_tokens"])),
+        ("MIRROR latency total (s)", f"{latency['value_total_sec']:.6f}"),
+        ("MIRROR latency avg/call (ms)", f"{latency['value_avg_sec'] * 1000:.3f}"),
+        ("Sender-side total (s)", f"{latency['sender_total_sec']:.6f}"),
+        ("Receiver-side total (s)", f"{latency['receiver_total_sec']:.6f}"),
+        ("MIRROR latency/call (s)", _format_float_list(latency["per_call_total_sec"])),
+    ]
+
+    key_width = max(len(k) for k, _ in rows)
+    val_width = max(len(v) for _, v in rows)
+    border = "+-" + "-" * key_width + "-+-" + "-" * val_width + "-+"
+
+    print(border)
+    print(f"| {'Metric'.ljust(key_width)} | {'Value'.ljust(val_width)} |")
+    print(border)
+    for key, value in rows:
+        print(f"| {key.ljust(key_width)} | {value.ljust(val_width)} |")
+    print(border)
+
+
+def _should_print_checkpoint(task_idx, total_tasks, checkpoint_every):
+    if checkpoint_every <= 0:
+        return False
+    completed = task_idx + 1
+    return (completed % checkpoint_every == 0) and (completed < total_tasks)
+
+
 def resolve_attack_goal(dataset: str, attack_type: str) -> str:
     """
     Map (dataset, attack_type) to the exact attack_goal string the adversary
@@ -95,6 +155,8 @@ def main():
                         help="Used when --mmlu_mode custom. Subject name fragments.")
     parser.add_argument("--n_samples", type=int, default=20,
                         help="Max tasks to sample from the dataset (0 = all).")
+    parser.add_argument("--checkpoint_every", type=int, default=0,
+                        help="Print checkpoint metric tables every N tasks (0 = auto every 25% of run).")
 
     # Attack
     parser.add_argument("--attack_type", type=str, default="targeted",
@@ -119,6 +181,14 @@ def main():
     print(f" Topology:     {args.topo.upper()}  |  Adapter: {args.adapter.upper()}")
     print(f" Strategy:     k={args.k} | Ghosts={args.ghosts} | Latching={args.latching}")
     print("-" * 50)
+
+    total_tasks = len(tasks)
+    if args.checkpoint_every > 0:
+        checkpoint_every = args.checkpoint_every
+    elif total_tasks >= 4:
+        checkpoint_every = max(1, total_tasks // 4)
+    else:
+        checkpoint_every = 0
 
     # ── Infrastructure ────────────────────────────────────────────────────────
     from config import Config
@@ -157,6 +227,7 @@ def main():
     # ── Accumulators ──────────────────────────────────────────────────────────
     results       = []
     global_trials = []
+    last_checkpoint_trial_idx = 0
     bridge.set_attack_target([args.attack_start])
     # ── Main loop — one iteration per task ────────────────────────────────────
     for i, task in enumerate(tasks):
@@ -242,6 +313,16 @@ def main():
             })
             print("HIT" if success else "miss")
 
+            if _should_print_checkpoint(i, total_tasks, checkpoint_every):
+                completed = i + 1
+                print("\n" + "-" * 50)
+                print(f"CHECKPOINT @ {completed}/{total_tasks} tasks")
+                _print_mirror_metrics_table(global_trials, "CUMULATIVE")
+                recent_trials = global_trials[last_checkpoint_trial_idx:]
+                _print_mirror_metrics_table(recent_trials, "SINCE_LAST_CHECKPOINT")
+                print("-" * 50)
+                last_checkpoint_trial_idx = len(global_trials)
+
         except Exception as exc:
             global_trials.extend(logger.trials)  # preserve any trials logged before failure
             print(f"\n  [WARN] Task failed: {exc}")
@@ -270,6 +351,15 @@ def main():
     print(f"Attack Success Rate (ASR):     {asr_pct:.1f}%")
     print(f"Avg Quorum Poisoning (QPR):    {qpr_report['display_avg']}")
     print(f"Majority Breaches Prevented:   {qpr_report['breach_count'] == 0}")
+
+    mirror_stats = bridge.get_runtime_stats()
+    print("MIRROR Overhead Telemetry (Table):")
+    _print_mirror_metrics_table(global_trials, "FINAL")
+    print("MIRROR End-to-End Context:")
+    print(f"  Adapter:                     {mirror_stats['adapter']}")
+    print(f"  Protected messages:          {mirror_stats['messages']}")
+    print(f"  End-to-end total (s):        {mirror_stats['end_to_end_sec_total']:.6f}")
+    print(f"  End-to-end avg/msg (s):      {mirror_stats['end_to_end_sec_avg']:.6f}")
 
     if args.k > 1:
         print(f"Detection Sensitivity (TPR):   "
