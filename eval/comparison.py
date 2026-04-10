@@ -94,17 +94,39 @@ def llm_judge_metrics(trials: list, backend: str, model: str,
     """Run LLM Judge blindly on k=1 trial data, return metrics + raw results."""
     judge   = LLMJudge(backend=backend, model=model, openai_key=openai_key)
     results = judge.judge_batch(trials)
-    metrics = judge.compute_metrics(results)
+
+    # Annotate trials with judge verdicts as synthetic 'traitors' field,
+    # then reuse Evaluator.calculate_tpr/fpr directly.
+    annotated = []
+    for trial, result in zip(trials, results):
+        t = dict(trial)
+        # If judge says tampered, mark channel 0 as detected traitor
+        t["traitors"] = [0] if result["llm_verdict"] else []
+        annotated.append(t)
+
+    tpr = Evaluator.calculate_tpr(annotated)
+    fpr = Evaluator.calculate_fpr(annotated)
+
+    # ASR for judge = attacks that bypassed detection (false negatives) = 1 - TPR
+    tpr_val  = tpr["value"]
+    asr_val  = 100.0 - tpr_val
+
+    n_attacked = sum(1 for t in annotated if t.get("attacked_channels"))
+    n_clean    = len(annotated) - n_attacked
+
+    # Token usage from judge (accumulated in judge_batch)
+    tok = getattr(judge, "_last_token_totals", {})
+    tokens_total = tok.get("total_tokens", 0)
 
     return {
-        "ASR":          "N/A (judge detects, not blocks)",
-        "TPR":          f"{metrics['TPR']:.2f}%",
-        "FPR":          f"{metrics['FPR']:.2f}%",
+        "ASR ↓":        f"{asr_val:.1f}%",
+        "TPR ↑":        tpr["display"],
+        "FPR ↓":        fpr["display"],
         "Availability": "N/A",
-        "Accuracy":     f"{metrics['Accuracy']:.2f}%",
-        "n_attacked":   metrics["n_attacked"],
-        "n_clean":      metrics["n_clean"],
-        "n_total":      len(trials),
+        "Tokens (judge)": f"{tokens_total:,}",
+        "n_attacked":   n_attacked,
+        "n_clean":      n_clean,
+        "n_total":      len(annotated),
     }, results
 
 
@@ -112,7 +134,7 @@ def llm_judge_metrics(trials: list, backend: str, model: str,
 
 def print_table(mirror: dict, llm_judge: dict, no_def: dict):
     col = 20
-    rows = ["ASR ↓", "TPR ↑", "FPR ↓", "Availability", "n_attacked", "n_clean", "n_total", "Accuracy"]
+    rows = ["ASR ↓", "TPR ↑", "FPR ↓", "Availability", "Tokens (judge)", "n_attacked", "n_clean", "n_total"]
 
     header = f"{'Metric':<{col}}{'No Defense':<{col}}{'LLM Judge (k=1)':<{col}}{'MIRROR (k=3)':<{col}}"
     sep    = "─" * (col * 4)

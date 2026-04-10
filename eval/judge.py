@@ -57,17 +57,22 @@ Respond ONLY with valid JSON, no markdown, no extra text:
 
 # ── Backend helpers ───────────────────────────────────────────────────────────
 
-def _call_ollama(prompt: str, model: str) -> str:
+def _call_ollama(prompt: str, model: str) -> tuple[str, dict]:
     import ollama
     resp = ollama.chat(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         options={"temperature": 0.0},
     )
-    return resp["message"]["content"].strip()
+    tokens = {
+        "prompt_tokens":     resp.get("prompt_eval_count", 0),
+        "completion_tokens": resp.get("eval_count", 0),
+        "total_tokens":      resp.get("prompt_eval_count", 0) + resp.get("eval_count", 0),
+    }
+    return resp["message"]["content"].strip(), tokens
 
 
-def _call_openai(prompt: str, model: str, api_key: str) -> str:
+def _call_openai(prompt: str, model: str, api_key: str) -> tuple[str, dict]:
     from openai import OpenAI
     client = OpenAI(api_key=api_key)
     resp = client.chat.completions.create(
@@ -75,7 +80,13 @@ def _call_openai(prompt: str, model: str, api_key: str) -> str:
         messages=[{"role": "user", "content": prompt}],
         temperature=0.0,
     )
-    return resp.choices[0].message.content.strip()
+    usage = resp.usage
+    tokens = {
+        "prompt_tokens":     usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens":      usage.total_tokens,
+    }
+    return resp.choices[0].message.content.strip(), tokens
 
 
 # ── Main class ────────────────────────────────────────────────────────────────
@@ -94,7 +105,7 @@ class LLMJudge:
 
     # ── Internal LLM call ────────────────────────────────────────────────────
 
-    def _call(self, prompt: str) -> str:
+    def _call(self, prompt: str) -> tuple[str, dict]:
         if self.backend == "openai":
             return _call_openai(prompt, self.model, self.openai_key)
         return _call_ollama(prompt, self.model)
@@ -147,7 +158,7 @@ class LLMJudge:
             final_msg=final[:2000],
         )
 
-        raw = self._call(prompt)
+        raw, tokens = self._call(prompt)
         parsed = self._parse(raw)
 
         llm_verdict  = bool(parsed.get("tampered", False))
@@ -166,16 +177,23 @@ class LLMJudge:
             "correct":      llm_verdict == was_attacked,
             "confidence":   confidence,
             "reason":       reason,
+            "tokens":       tokens,
         }
 
     def judge_batch(self, trials: list) -> list:
         """Judge all trials and return a list of result dicts."""
         results = []
+        total_tokens = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         for i, trial in enumerate(trials):
             print(f"  [Judge] Trial {i+1}/{len(trials)} ...", end="\r")
             result = self.judge_trial(trial, trial_index=i)
+            for k in total_tokens:
+                total_tokens[k] += result.get("tokens", {}).get(k, 0)
             results.append(result)
-        print()
+        print(f"\n  [Judge] Total tokens used: prompt={total_tokens['prompt_tokens']:,} "
+              f"completion={total_tokens['completion_tokens']:,} "
+              f"total={total_tokens['total_tokens']:,}")
+        self._last_token_totals = total_tokens
         return results
 
     # ── Metrics from judge results ────────────────────────────────────────────
