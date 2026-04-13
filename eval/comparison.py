@@ -90,7 +90,7 @@ def no_defense_metrics(trials: list, meta: dict = None, attack_goal: str = "targ
 # ── LLM Judge metrics (run judge on k=1 baseline data) ───────────────────────
 
 def llm_judge_metrics(trials: list, backend: str, model: str,
-                      openai_key: str = "") -> tuple[dict, list]:
+                      openai_key: str = "", meta: dict = None) -> tuple[dict, list]:
     """Run LLM Judge blindly on k=1 trial data, return metrics + raw results."""
     judge   = LLMJudge(backend=backend, model=model, openai_key=openai_key)
     results = judge.judge_batch(trials)
@@ -107,9 +107,9 @@ def llm_judge_metrics(trials: list, backend: str, model: str,
     tpr = Evaluator.calculate_tpr(annotated)
     fpr = Evaluator.calculate_fpr(annotated)
 
-    # ASR for judge = attacks that bypassed detection (false negatives) = 1 - TPR
-    tpr_val  = tpr["value"]
-    asr_val  = 100.0 - tpr_val
+    # ASR: use same definition as No Defense / MIRROR — payload success rate from meta.
+    # Judge doesn't block attacks, so the underlying ASR is the same as no defense.
+    asr_display = f"{meta['asr_pct']:.1f}%" if meta and "asr_pct" in meta else "—"
 
     n_attacked = sum(1 for t in annotated if t.get("attacked_channels"))
     n_clean    = len(annotated) - n_attacked
@@ -119,7 +119,7 @@ def llm_judge_metrics(trials: list, backend: str, model: str,
     tokens_total = tok.get("total_tokens", 0)
 
     return {
-        "ASR ↓":        f"{asr_val:.1f}%",
+        "ASR ↓":        asr_display,
         "TPR ↑":        tpr["display"],
         "FPR ↓":        fpr["display"],
         "Availability": "N/A",
@@ -195,6 +195,7 @@ def main():
         backend=args.backend,
         model=args.model,
         openai_key=Config.JUDGE_OPENAI_KEY,
+        meta=baseline_data["meta"],
     )
 
     print("[Comparison] Computing MIRROR metrics ...")

@@ -165,8 +165,12 @@ class LLMJudge:
         confidence   = parsed.get("confidence", "low")
         reason       = parsed.get("reason", "")
 
-        # Ground truth — only used here for metric bookkeeping, never shown to judge
-        was_attacked = len(trial.get("attacked_channels", [])) > 0
+        # Ground truth: was this specific message actually modified?
+        # Use content diff rather than attacked_channels (which is task-level config,
+        # not a guarantee that THIS message was tampered).
+        orig_text  = str(trial.get("original_msg", "")).strip()
+        final_text = str(trial.get("final_msg",    "")).strip()
+        was_attacked = orig_text != final_text
 
         return {
             "trial_index":  trial_index,
