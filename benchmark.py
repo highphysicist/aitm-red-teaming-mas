@@ -129,6 +129,8 @@ def main():
                         choices=["chain", "tree", "complete", "random"])
     parser.add_argument("--k",        type=int, default=3,
                         help="Channels (k=1: Baseline, k=3: MIRROR)")
+    parser.add_argument("--alpha",    type=int, default=1,
+                        help="Number of initially compromised channels (alpha).")
     parser.add_argument("--carriers", type=int, default=2,
                         help="Full-text carriers.")
     parser.add_argument("--ghosts",   type=int, default=1,
@@ -179,7 +181,7 @@ def main():
     print(f" Dataset:      {args.dataset.upper()}  ({len(tasks)} tasks)")
     print(f" Attack:       {attack_goal}")
     print(f" Topology:     {args.topo.upper()}  |  Adapter: {args.adapter.upper()}")
-    print(f" Strategy:     k={args.k} | Ghosts={args.ghosts} | Latching={args.latching}")
+    print(f" Strategy:     k={args.k} | alpha={args.alpha} | Ghosts={args.ghosts} | Latching={args.latching}")
     print("-" * 50)
 
     total_tasks = len(tasks)
@@ -228,7 +230,10 @@ def main():
     results       = []
     global_trials = []
     last_checkpoint_trial_idx = 0
-    bridge.set_attack_target([args.attack_start])
+    
+    # Determine initial compromised channels based on alpha
+    initial_attacked = [(args.attack_start + i) % args.k for i in range(args.alpha)]
+    bridge.set_attack_target(initial_attacked)
     # ── Main loop — one iteration per task ────────────────────────────────────
     for i, task in enumerate(tasks):
         print(f" [{i+1:>3}/{len(tasks)}] {task['task_id']}", end="  ", flush=True)
