@@ -20,9 +20,9 @@ Two attack goals (Section 4.1):
     "dos"      — make the system respond with "I can not assist the request"
 """
 
-#import ollama
-#import vertexai
 from google.cloud import aiplatform
+from google.protobuf import json_format
+from google.protobuf.struct_pb2 import Value
 from config import Config
 
 
@@ -117,14 +117,15 @@ class LlamaAdversary:
         self.strategy = strategy
 
         # Initialize the AI Platform with the dedicated endpoint URL
-        aiplatform.init(
+        client_options = {"api_endpoint": self.config.DEDICATED_API_ENDPOINT}
+
+        self.client = aiplatform.gapic.PredictionServiceClient(client_options=client_options)
+        # Construct endpoint address
+        self.endpoint_path = self.client.endpoint_path(
             project=self.config.PROJECT_ID,
             location=self.config.LOCATION,
-            api_endpoint=self.config.dedicated_api_endpoint
+            endpoint=self.config.ENDPOINT_ID
         )
-
-        # Use the Endpoint class instead of GenerativeModel for custom models
-        self.endpoint = aiplatform.Endpoint(self.config.ADVERSARY_MODEL)
 
         # Resolve convenience alias
         if attack_goal == "targeted":
@@ -144,27 +145,26 @@ class LlamaAdversary:
 
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
         try:
-            # Construct the prompt for custom models (adjust template if needed)
             full_prompt = f"{system_prompt}\n\nUser: {user_prompt}\nAssistant:"
 
-            # Use predict() for standard deployments
-            # Custom containers usually expect a 'prompt' key in the instance
-            response = self.endpoint.predict(instances=[{"prompt": full_prompt}])
+            # 构建符合模型容器要求的实例格式
+            instance_dict = {"prompt": full_prompt}
+            instance = json_format.ParseDict(instance_dict, Value())
 
-            # Extract output from predictions
+            # 发起预测请求
+            response = self.client.predict(
+                endpoint=self.endpoint_path,
+                instances=[instance],
+                parameters=json_format.ParseDict({}, Value())
+            )
+
             if response.predictions:
                 prediction = response.predictions[0]
-                # Check if output is a string or a dict depending on your container
-                if isinstance(prediction, str):
-                    return prediction.strip()
-                elif isinstance(prediction, dict) and 'content' in prediction:
-                    return prediction['content'].strip()
                 return str(prediction).strip()
-
             return ""
 
         except Exception as e:
-            print(f"[adversary] Vertex AI Endpoint call failed: {e}")
+            print(f"[adversary] Vertex AI Call failed: {e}")
             return ""
 
 

@@ -17,13 +17,14 @@ class Config:
     #ADVERSARY_MODEL = "qwen2.5:14b"
 
     # Your Project ID
-    PROJECT_ID = "ai-teaming"
-    # Your Model Location
-    LOCATION = "us-central1"
+    PROJECT_ID = "647247162335"
     # Details-Endpoint ID
     ENDPOINT_ID = "mg-endpoint-e0c19657-83fe-48d7-96f0-f6409dc6ca1d"
-    # Details-Dedicated endpoint
-    dedicated_api_endpoint = "mg-endpoint-e0c19657-83fe-48d7-96f0-f6409dc6ca1d.us-central1-55423706394.prediction.vertexai.goog"
+    # Your Model Location
+    LOCATION = "us-central1"
+
+
+    DEDICATED_API_ENDPOINT = "343452797900947456.us-central1-647247162335.prediction.vertexai.goog"
 
     ADVERSARY_MODEL = f"projects/{PROJECT_ID}/locations/{LOCATION}/endpoints/{ENDPOINT_ID}"
 
