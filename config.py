@@ -21,7 +21,7 @@ class Config:
     # Your Model Location
     LOCATION = "us-central1"
     # Details-Endpoint ID
-    ENDPOINT_ID = "670500332559663104"
+    ENDPOINT_ID = "mg-endpoint-e0c19657-83fe-48d7-96f0-f6409dc6ca1d"
     # Details-Dedicated endpoint
     dedicated_api_endpoint = "mg-endpoint-e0c19657-83fe-48d7-96f0-f6409dc6ca1d.us-central1-55423706394.prediction.vertexai.goog"
 

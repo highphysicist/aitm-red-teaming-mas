@@ -166,12 +166,12 @@ gcloud auth application-default login
 ```
 3.Modify config.py parameters
 
-| Field Name                | Description                          | Example Value                                      |
-|--------------------------|--------------------------------------|----------------------------------------------------|
-| PROJECT_ID               | Your Google Cloud Project ID         | ai-teaming                                         |
-| LOCATION                 | Model deployment region              | us-central1                                        |
-| ENDPOINT_ID              | Vertex AI Endpoint ID                | 6705xxxxxxxxx                                      |
-| dedicated_api_endpoint   | Dedicated Vertex AI API endpoint URL | xxxxxx.us-central1-xxxxxx.prediction.vertexai.goog |
+| Field Name                | Description                          | Example Value                                                 |
+|--------------------------|--------------------------------------|---------------------------------------------------------------|
+| PROJECT_ID               | Your Google Cloud Project ID         | ai-teaming                                                    |
+| LOCATION                 | Model deployment region              | us-central1                                                   |
+| ENDPOINT_ID              | Vertex AI Endpoint ID                | mg-endpoint-xxxxx                                             |
+| dedicated_api_endpoint   | Dedicated Vertex AI API endpoint URL | mg-endpoint-xxxxx.us-central1-xxxxxx.prediction.vertexai.goog |
 
 ---
 
