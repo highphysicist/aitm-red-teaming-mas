@@ -7,22 +7,35 @@ load_dotenv()
 class Config:
     # --- Infrastructure Settings ---
     # Using local Ollama for the Victims to keep them fast
-    _LOCAL_URL = "http://localhost:11434/v1"
+    #_LOCAL_URL = "http://localhost:11434/v1"
 
     # Using Qwen 32B for the Adversary to ensure stealth and high-quality code injection
     # This model is much less likely to "apologize" or "explain" than Llama 3
-    ADVERSARY_URL = _LOCAL_URL
+    #ADVERSARY_URL = _LOCAL_URL
     # Google Collab RESTORE
     #ADVERSARY_MODEL = "qwen2.5:32b"
-    ADVERSARY_MODEL = "qwen2.5:14b"
+    #ADVERSARY_MODEL = "qwen2.5:14b"
+
+    # Your Project ID
+    PROJECT_ID = "ai-teaming"
+    # Your Model Location
+    LOCATION = "us-central1"
+    # Details-Endpoint ID
+    ENDPOINT_ID = "670500332559663104"
+    # Details-Dedicated endpoint
+    dedicated_api_endpoint = "mg-endpoint-e0c19657-83fe-48d7-96f0-f6409dc6ca1d.us-central1-55423706394.prediction.vertexai.goog"
+
+    ADVERSARY_MODEL = f"projects/{PROJECT_ID}/locations/{LOCATION}/endpoints/{ENDPOINT_ID}"
+
 
     VICTIM_CONFIG = {
         "config_list": [
             {
-                "model": "qwen2.5:14b",
-                "api_key": "ollama",
-                "base_url": _LOCAL_URL,
-                "api_type": "openai",
+                "model": ADVERSARY_MODEL,
+                #"api_key": "EMPTY",
+                "location": LOCATION,
+                "api_type": "google",
+                "project_id": PROJECT_ID,
                 "price": [0.0, 0.0]
             }
         ],

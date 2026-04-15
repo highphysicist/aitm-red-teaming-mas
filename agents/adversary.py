@@ -20,7 +20,9 @@ Two attack goals (Section 4.1):
     "dos"      — make the system respond with "I can not assist the request"
 """
 
-import ollama
+#import ollama
+import vertexai
+from vertexai.generative_models import GenerativeModel, ChatSession
 from config import Config
 
 
@@ -118,6 +120,17 @@ class LlamaAdversary:
     def __init__(self, config, attack_goal: str = "dos", strategy: str = "reflection"):
         self.config = config
         self.strategy = strategy  # kept for compatibility
+        # Initialize Vertex AI
+        dedicated_api_endpoint = self.config.dedicated_api_endpoint
+
+        vertexai.init(
+            project=self.config.PROJECT_ID,
+            location=self.config.LOCATION,
+            api_endpoint=dedicated_api_endpoint  # 告诉 SDK 访问专用域名
+        )
+
+        # Initialize Model
+        self.model = GenerativeModel(self.config.ADVERSARY_MODEL)
 
         # Resolve convenience alias
         if attack_goal == "targeted":
@@ -134,21 +147,28 @@ class LlamaAdversary:
         # I^{t-1} in the paper's notation
         self._previous_instructions: dict[str, str] = {}
 
-    # ── LLM call ──────────────────────────────────────────────────────────────
+
+    # ── LLM call (Updated for Vertex AI) ──────────────────────────────────────
 
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
         try:
-            response = ollama.chat(
-                model=self.config.ADVERSARY_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user",   "content": user_prompt},
-                ],
+            # Initialize the model with the system instruction per the paper's L3 requirement
+            # Using the full resource path from Config.ADVERSARY_MODEL
+            model_with_sys = GenerativeModel(
+                self.config.ADVERSARY_MODEL,
+                system_instruction=[system_prompt]
             )
-            return response["message"]["content"].strip()
+
+            # Generate the adversarial instruction
+            response = model_with_sys.generate_content(user_prompt)
+
+            # Return the stripped text response
+            return response.text.strip()
+
         except Exception as e:
-            print(f"[adversary] LLM call failed: {e}")
+            print(f"[adversary] Vertex AI call failed: {e}")
             return ""
+
 
     # ── Core manipulation (called by AutoGenAdapter per intercepted message) ──
 

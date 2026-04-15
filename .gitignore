@@ -9,6 +9,7 @@ venv-meta/
 # Python Cache & Compiled Files
 /.cache/
 **/__pycache__/
+**/__pycache__
 *.py[cod]
 *$py.class
 
@@ -24,3 +25,5 @@ workspace_mirror_*/
 # Benchmark Evaluation Outputs & Telemetry
 logs/
 results/
+/__pycache__
+/adapters/__pycache__

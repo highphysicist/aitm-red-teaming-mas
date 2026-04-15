@@ -151,6 +151,29 @@ python main.py --adapter metagpt --k 3 --ghosts 1 --latching --carriers 2 --meta
 Logs will be stored locally and mirror the repository’s logs directory.
 
 ---
+# ☁️ Running in Vertex AI
+## Vertex Side:
+Deploy Gemma 4 from Model Garden
+https://console.cloud.google.com/vertex-ai/publishers/google/model-garden/gemma4?project=ai-teaming
+
+## Local:
+
+1.Install and initialize login Google CLI https://cloud.google.com/sdk/docs/install
+
+2.Run this line on your console to get a Application Default Credentials (ADC)
+```
+gcloud auth application-default login
+```
+3.Modify config.py parameters
+
+| Field Name                | Description                          | Example Value                                      |
+|--------------------------|--------------------------------------|----------------------------------------------------|
+| PROJECT_ID               | Your Google Cloud Project ID         | ai-teaming                                         |
+| LOCATION                 | Model deployment region              | us-central1                                        |
+| ENDPOINT_ID              | Vertex AI Endpoint ID                | 6705xxxxxxxxx                                      |
+| dedicated_api_endpoint   | Dedicated Vertex AI API endpoint URL | xxxxxx.us-central1-xxxxxx.prediction.vertexai.goog |
+
+---
 
 # 🛠️ CLI Configuration Flags
 
