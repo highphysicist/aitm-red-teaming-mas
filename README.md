@@ -148,12 +148,16 @@ pip install -r requirements.txt
 ```
 
    * ⚠️ Keep MetaGPT and AutoGen installs isolated.
-5. run this in terminal
+5. Run this in terminal
 ```bash
 cd /content/aitm-red-teaming-mas
 bash colab_run.sh
 ```
 
+6. You need to restart the ollama service if you terminated it
+```bash
+ollama serve
+```
 
 Logs will be stored locally and mirror the repository’s logs directory.
 
