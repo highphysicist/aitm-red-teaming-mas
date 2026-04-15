@@ -13,4 +13,6 @@ until curl -s localhost:11434/api/tags > /dev/null; do sleep 2; done
 #/usr/local/bin/ollama pull llama3
 #/usr/local/bin/ollama pull qwen2.5:32b
 /usr/local/bin/ollama pull gemma4:31b-it-bf16
-python /content/aitm-red-teaming-mas/main.py
+
+#start ollama
+ollama serve

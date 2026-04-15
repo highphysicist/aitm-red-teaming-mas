@@ -134,7 +134,7 @@ python main.py --adapter metagpt --k 3 --ghosts 1 --latching --carriers 2 --meta
 
 ## Requirements:
 
-* **A100 GPU (40GB VRAM required)**
+* **A100 GPU (80GB VRAM required)**
 * Python 3.11
 
 ## Steps:
@@ -143,10 +143,17 @@ python main.py --adapter metagpt --k 3 --ghosts 1 --latching --carriers 2 --meta
 2. Ensure Python 3.11.
 3. Clone repository (may require GitHub token if private).
 4. Install requirements.
+```bash
+pip install -r requirements.txt
+```
 
    * ⚠️ Keep MetaGPT and AutoGen installs isolated.
-5. Copy contents of the Colab run file into a cell.
-6. Execute.
+5. run this in terminal
+```bash
+cd /content/aitm-red-teaming-mas
+bash colab_run.sh
+```
+
 
 Logs will be stored locally and mirror the repository’s logs directory.
 
