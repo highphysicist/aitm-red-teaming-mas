@@ -14,12 +14,12 @@ class Config:
     ADVERSARY_URL = _LOCAL_URL
     # Google Collab RESTORE
     #ADVERSARY_MODEL = "qwen2.5:32b"
-    ADVERSARY_MODEL = "qwen2.5:14b"
+    ADVERSARY_MODEL = "gemma4:31b-it-bf16"
 
     VICTIM_CONFIG = {
         "config_list": [
             {
-                "model": "qwen2.5:14b",
+                "model": "gemma4:31b-it-bf16",
                 "api_key": "ollama",
                 "base_url": _LOCAL_URL,
                 "api_type": "openai",
