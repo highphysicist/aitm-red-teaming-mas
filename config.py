@@ -19,12 +19,11 @@ class Config:
     # Your Project ID
     PROJECT_ID = "647247162335"
     # Details-Endpoint ID
-    ENDPOINT_ID = "mg-endpoint-e0c19657-83fe-48d7-96f0-f6409dc6ca1d"
+    ENDPOINT_ID = "mg-endpoint-8790f583-4f35-4458-8ddd-bc130cfe7267"
     # Your Model Location
     LOCATION = "us-central1"
 
-
-    DEDICATED_API_ENDPOINT = "343452797900947456.us-central1-647247162335.prediction.vertexai.goog"
+    API_ENDPOINT = f"{LOCATION}-aiplatform.googleapis.com"
 
     ADVERSARY_MODEL = f"projects/{PROJECT_ID}/locations/{LOCATION}/endpoints/{ENDPOINT_ID}"
 

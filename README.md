@@ -153,8 +153,12 @@ Logs will be stored locally and mirror the repository’s logs directory.
 ---
 # ☁️ Running in Vertex AI
 ## Vertex Side:
-Deploy Gemma 4 from Model Garden
-https://console.cloud.google.com/vertex-ai/publishers/google/model-garden/gemma4?project=ai-teaming
+1. Deploy Gemma 4 from Model Garden
+https://console.cloud.google.com/vertex-ai/publishers/google/model-garden/gemma4
+
+2. Choose 
+Endpoint access
+Public (Shared endpoint) otherwise you can't access it through Internet.
 
 ## Local:
 

@@ -19,6 +19,71 @@ import topologies.random   as topology_random  # avoid shadowing stdlib random
 # Dataset loader
 from experiment_loader import load_dataset
 
+from google.cloud import aiplatform
+from google.protobuf import json_format
+from google.protobuf.struct_pb2 import Value
+import autogen
+
+
+# Define the custom client for AutoGen to interact with Vertex AI custom endpoints
+class VertexCustomClient:
+    def __init__(self, config, **kwargs):
+        print(f"Custom client initialized with config: {config}")
+        self.endpoint_path = config.get("model")
+        self.client = aiplatform.gapic.PredictionServiceClient(
+            client_options={"api_endpoint": f"{config.get('location')}-aiplatform.googleapis.com"}
+        )
+
+    def create(self, params):
+        # Extract messages from AutoGen's prompt format
+        messages = params.get("messages", [])
+
+        # Build prompt (adjust formatting to match your Qwen container's expectation)
+        prompt = ""
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            prompt += f"{role}: {content}\n"
+        prompt += "assistant: "
+
+        instance_dict = {"prompt": prompt}
+        instance = json_format.ParseDict(instance_dict, Value())
+
+        try:
+            response = self.client.predict(
+                endpoint=self.endpoint_path,
+                instances=[instance],
+                parameters=json_format.ParseDict({}, Value())
+            )
+
+            # Parse prediction result
+            reply = ""
+            if response.predictions:
+                pred = response.predictions[0]
+                reply = pred.get('content', str(pred)).strip() if isinstance(pred, dict) else str(pred).strip()
+
+            # Return response in AutoGen's expected format
+            from autogen.oai.client import ModelClientResponse
+            return ModelClientResponse(
+                choices=[{"message": {"role": "assistant", "content": reply}}],
+                model=self.endpoint_path,
+            )
+
+        except Exception as e:
+            print(f"Vertex AI Call failed: {e}")
+            raise
+
+    def message_retrieval(self, response):
+        return response.choices[0]["message"]["content"]
+
+    def cost(self, response) -> float:
+        return 0.0
+
+    @staticmethod
+    def get_usage(response):
+        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # HELPERS

@@ -23,6 +23,13 @@ Two attack goals (Section 4.1):
 from google.cloud import aiplatform
 from google.protobuf import json_format
 from google.protobuf.struct_pb2 import Value
+# Add this import to explicitly define client options
+from google.api_core.client_options import ClientOptions
+
+import requests
+import google.auth
+import google.auth.transport.requests
+
 from config import Config
 
 
@@ -117,10 +124,10 @@ class LlamaAdversary:
         self.strategy = strategy
 
         # Initialize the AI Platform with the dedicated endpoint URL
-        client_options = {"api_endpoint": self.config.DEDICATED_API_ENDPOINT}
-
+        client_options = {"api_endpoint": self.config.API_ENDPOINT}
         self.client = aiplatform.gapic.PredictionServiceClient(client_options=client_options)
-        # Construct endpoint address
+
+
         self.endpoint_path = self.client.endpoint_path(
             project=self.config.PROJECT_ID,
             location=self.config.LOCATION,
@@ -145,26 +152,39 @@ class LlamaAdversary:
 
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
         try:
+            # 这里的 prompt 结构必须匹配你部署在 Vertex AI 上的自定义模型容器所期待的格式
+            # 大部分自定义容器期待 {"prompt": "..."} 或 {"inputs": "..."}
             full_prompt = f"{system_prompt}\n\nUser: {user_prompt}\nAssistant:"
 
-            # 构建符合模型容器要求的实例格式
             instance_dict = {"prompt": full_prompt}
-            instance = json_format.ParseDict(instance_dict, Value())
 
-            # 发起预测请求
+            # 3. 按照 Sample 要求，将 dict 转换为 Protobuf Value
+            instance = json_format.ParseDict(instance_dict, Value())
+            instances = [instance]
+
+            parameters_dict = {}  # 如果你的模型需要 temperature 等参数，写在这里
+            parameters = json_format.ParseDict(parameters_dict, Value())
+
+            # 4. 发起预测请求
             response = self.client.predict(
                 endpoint=self.endpoint_path,
-                instances=[instance],
-                parameters=json_format.ParseDict({}, Value())
+                instances=instances,
+                parameters=parameters
             )
 
+            # 5. 解析返回结果
+            # Vertex AI 的自定义模型返回通常在 predictions 列表里
             if response.predictions:
                 prediction = response.predictions[0]
+                # 注意：如果返回的是 dict 类型，直接用 key 取值
+                if isinstance(prediction, dict):
+                    return prediction.get('content', str(prediction)).strip()
                 return str(prediction).strip()
+
             return ""
 
         except Exception as e:
-            print(f"[adversary] Vertex AI Call failed: {e}")
+            print(f"[adversary] Vertex AI GAPIC Call failed: {e}")
             return ""
 
 
