@@ -124,7 +124,6 @@ class LlamaAdversary:
         )
 
         # Use the Endpoint class instead of GenerativeModel for custom models
-        # This resolves the 404/501 error by using the correct 'predict' method
         self.endpoint = aiplatform.Endpoint(self.config.ADVERSARY_MODEL)
 
         # Resolve convenience alias
