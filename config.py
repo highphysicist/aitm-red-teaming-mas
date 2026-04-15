@@ -14,7 +14,7 @@ class Config:
     ADVERSARY_URL = _LOCAL_URL
     # Google Collab RESTORE
     #ADVERSARY_MODEL = "qwen2.5:32b"
-    ADVERSARY_MODEL = "gemma4:31b-it-bf16"
+    ADVERSARY_MODEL = "gemma4:31b-it-q8_0"
 
     VICTIM_CONFIG = {
         "config_list": [
