@@ -19,7 +19,7 @@ class Config:
     VICTIM_CONFIG = {
         "config_list": [
             {
-                "model": "gemma4:31b-it-bf16",
+                "model": "gemma4:31b-it-q8_0",
                 "api_key": "ollama",
                 "base_url": _LOCAL_URL,
                 "api_type": "openai",
