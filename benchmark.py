@@ -172,6 +172,11 @@ def main():
                         help="Enable LLM-as-Judge defense: judge evaluates the final "
                              "output and blocks if the attack succeeded. Use with --k 1.")
 
+    # Backend
+    parser.add_argument("--backend", type=str, default="ollama",
+                        choices=["ollama", "vertex"],
+                        help="LLM backend: ollama (local) or vertex (GCP Vertex AI MaaS)")
+
     args = parser.parse_args()
 
     # ── Resolve attack goal ───────────────────────────────────────────────────
@@ -192,8 +197,21 @@ def main():
     else:
         checkpoint_every = 0
 
-    # ── Infrastructure ────────────────────────────────────────────────────────
+    # ── Backend configuration ─────────────────────────────────────────────────
     from config import Config
+
+    if args.backend == "vertex":
+        from backends.vertex import get_token, MODEL as VERTEX_MODEL
+        Config.VICTIM_CONFIG = Config.VERTEX_VICTIM_CONFIG
+        Config.VICTIM_CONFIG["config_list"][0]["api_key"] = get_token()
+        Config.ADVERSARY_MODEL = VERTEX_MODEL
+        Config.JUDGE_BACKEND   = "vertex"
+        Config.JUDGE_MODEL     = VERTEX_MODEL
+        print(f" Backend:      VERTEX AI  ({VERTEX_MODEL})")
+    else:
+        print(f" Backend:      OLLAMA  ({Config.ADVERSARY_MODEL})")
+
+    # ── Infrastructure ────────────────────────────────────────────────────────
     from agents.adversary import LlamaAdversary
 
     logger    = MirrorLogger()
@@ -254,6 +272,11 @@ def main():
     # ── Main loop — one iteration per task ────────────────────────────────────
     for i, task in enumerate(tasks):
         print(f" [{i+1:>3}/{len(tasks)}] {task['task_id']}", end="  ", flush=True)
+
+        # Refresh Vertex token once per task (tokens expire in 1hr)
+        if args.backend == "vertex":
+            from backends.vertex import get_token
+            Config.VICTIM_CONFIG["config_list"][0]["api_key"] = get_token()
 
         # Full reset at the start of every task
         adversary.reset()

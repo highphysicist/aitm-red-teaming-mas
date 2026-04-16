@@ -119,7 +119,7 @@ class LlamaAdversary:
 
     # ── LLM call ──────────────────────────────────────────────────────────────
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
-        # Route 1: Vertex AI (Gemini) for MetaGPT runs
+        # Route 1: Vertex AI SDK (Gemini) — MetaGPT runs
         if self.adapter_name == "metagpt":
             try:
                 import os
@@ -133,12 +133,7 @@ class LlamaAdversary:
                     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
                     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                 }
-
-                model = GenerativeModel(
-                    "gemini-2.5-pro",
-                    safety_settings=adversary_safety_config,
-                )
-
+                model = GenerativeModel("gemini-2.5-pro", safety_settings=adversary_safety_config)
                 prompt = f"{system_prompt}\n\n{user_prompt}".strip()
                 response = model.generate_content(prompt)
                 return (response.text or "").strip()
@@ -146,13 +141,26 @@ class LlamaAdversary:
                 print(f"[adversary] Vertex AI call failed: {e}")
                 return ""
 
-        # Route 2: Universal Local Route
-        try:
-            client = OpenAI(
-                base_url=self.config.ADVERSARY_URL,
-                api_key="EMPTY"
-            )
+        # Route 2: Vertex AI MaaS (Gemma 4) — --backend vertex
+        if getattr(self.config, "JUDGE_BACKEND", "ollama") == "vertex":
+            from backends.vertex import make_client
+            try:
+                client = make_client()
+                resp = client.chat.completions.create(
+                    model=self.config.ADVERSARY_MODEL,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user",   "content": user_prompt},
+                    ],
+                )
+                return resp.choices[0].message.content.strip()
+            except Exception as e:
+                print(f"[adversary] Vertex MaaS call failed: {e}")
+                return ""
 
+        # Route 3: Local OpenAI-compatible (Ollama)
+        try:
+            client = OpenAI(base_url=self.config.ADVERSARY_URL, api_key="EMPTY")
             response = client.chat.completions.create(
                 model=self.config.ADVERSARY_MODEL,
                 messages=[
@@ -161,11 +169,10 @@ class LlamaAdversary:
                 ]
             )
             return response.choices[0].message.content.strip()
-
         except Exception as e:
             print(f"[adversary] Local Model call failed: {e}")
             return ""
-        
+
     # ── Core manipulation ─────────────────────────────────────────────────────
     def manipulate(self, message: str, sender: str, receiver: str,
                    channel_index: int = 0) -> str:
