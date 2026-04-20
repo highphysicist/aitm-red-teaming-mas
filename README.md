@@ -151,12 +151,13 @@ pip install -r requirements.txt
 5. Run this in terminal
 ```bash
 cd /content/aitm-red-teaming-mas
-bash colab_run.sh
+bash vllm.sh
 ```
 
-6. You need to restart the ollama service if you terminated it
+6. When you see these logs it means that vllm has started successfully
 ```bash
-ollama serve
+(APIServer pid=6656) INFO:     Waiting for application startup.
+(APIServer pid=6656) INFO:     Application startup complete.
 ```
 
 Logs will be stored locally and mirror the repository’s logs directory.
