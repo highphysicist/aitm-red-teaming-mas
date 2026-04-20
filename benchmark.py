@@ -421,10 +421,44 @@ def main():
               f"{Evaluator.calculate_system_availability(global_trials)['display']}")
     print("=" * 50)
 
-    # ── Save trial log for LLM-Judge offline comparison ───────────────────────
+    import json
+    import os
+    from datetime import datetime
+
+    # ── Always save summary to results/ ──────────────────────────────────────
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = "results"
+    os.makedirs(output_dir, exist_ok=True)
+    filename = os.path.join(
+        output_dir,
+        f"results_{args.adapter}_{args.dataset}_{args.topo}_k{args.k}_alpha{args.alpha}_{timestamp}.json"
+    )
+    export_data = {
+        "settings": vars(args),
+        "summary": {
+            "total_tasks": n_total,
+            "successful_attacks": n_success,
+            "asr_percentage": asr_pct,
+            "qpr_display_avg": qpr_report.get("display_avg"),
+            "majority_breaches_prevented": qpr_report.get("breach_count", 0) == 0,
+            "end_to_end_avg_sec": mirror_stats.get("end_to_end_sec_avg"),
+            "judge_enabled": args.judge,
+            "judge_tokens": judge_total_tokens if args.judge else None,
+            "asr_no_defense_pct": round(
+                sum(1 for r in results if r.get("ground_truth_success")) / n_total * 100, 2
+            ) if args.judge and n_total else None,
+        },
+        "task_results": results,
+    }
+    try:
+        with open(filename, "w") as f:
+            json.dump(export_data, f, indent=4)
+        print(f"\n[💾] Full results safely written to: {os.path.abspath(filename)}")
+    except Exception as e:
+        print(f"\n[❌] Failed to save results: {e}")
+
+    # ── Optionally save full trial log to logs/ (for judge analysis) ─────────
     if args.save_log:
-        import json, os
-        from datetime import datetime
         ts  = datetime.now().strftime("%Y%m%d_%H%M%S")
         tag = f"k{args.k}_{args.dataset}_{args.attack_type}"
         path = os.path.join("logs", f"run_{tag}_{ts}.json")
@@ -447,8 +481,9 @@ def main():
         }
         with open(path, "w") as f:
             json.dump(payload, f, indent=2)
-        print(f"\n[Logger] Trial log saved → {path}")
+        print(f"[Logger] Trial log saved → {path}")
 
 
 if __name__ == "__main__":
     main()
+
