@@ -167,6 +167,11 @@ def main():
                         choices=["targeted", "dos"],
                         help="targeted = induce specific output; dos = refuse all requests.")
 
+    # Judge defense
+    parser.add_argument("--judge", action="store_true",
+                        help="Enable LLM-as-Judge defense: judge evaluates the final "
+                             "output and blocks if the attack succeeded. Use with --k 1.")
+
     args = parser.parse_args()
 
     # ── Resolve attack goal ───────────────────────────────────────────────────
@@ -178,13 +183,6 @@ def main():
         loader_kwargs["mmlu_mode"] = args.mmlu_mode
         loader_kwargs["subjects"]  = args.mmlu_subjects
     tasks = load_dataset(args.dataset, **loader_kwargs)
-
-    print(f"\n MIRROR RESILIENCE BENCHMARK")
-    print(f" Dataset:      {args.dataset.upper()}  ({len(tasks)} tasks)")
-    print(f" Attack:       {attack_goal}")
-    print(f" Topology:     {args.topo.upper()}  |  Adapter: {args.adapter.upper()}")
-    print(f" Strategy:     k={args.k} | alpha={args.alpha} | Ghosts={args.ghosts} | Latching={args.latching}")
-    print("-" * 50)
 
     total_tasks = len(tasks)
     if args.checkpoint_every > 0:
@@ -204,6 +202,23 @@ def main():
     adversary = LlamaAdversary(Config, attack_goal=attack_goal)
 
     victim_name = Config.TOPOLOGY_TARGETS[args.topo]
+
+    # ── Judge (optional) ──────────────────────────────────────────────────────
+    judge = None
+    judge_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    if args.judge:
+        from eval.judge import LLMJudge
+        judge = LLMJudge(backend=Config.JUDGE_BACKEND, model=Config.JUDGE_MODEL,
+                         openai_key=Config.JUDGE_OPENAI_KEY)
+
+    print(f"\n MIRROR RESILIENCE BENCHMARK")
+    print(f" Dataset:      {args.dataset.upper()}  ({len(tasks)} tasks)")
+    print(f" Attack:       {attack_goal}")
+    print(f" Topology:     {args.topo.upper()}  |  Adapter: {args.adapter.upper()}")
+    print(f" Strategy:     k={args.k} | alpha={args.alpha} | Ghosts={args.ghosts} | Latching={args.latching}")
+    if args.judge:
+        print(f" Judge:        ENABLED ({Config.JUDGE_BACKEND.upper()} / {Config.JUDGE_MODEL})")
+    print("-" * 50)
 
     protocols = [InMemoryTransport() for _ in range(args.k)]
     if args.scenario == "real-world":
@@ -309,16 +324,35 @@ def main():
                 attack_goal=attack_goal,
                 correct_answer=correct_answer,
             )
+            ground_truth_success = asr_report["payload_detected"]
 
-            success = asr_report["payload_detected"]
+            # Judge defense: LLM evaluates final output and blocks if attacked
+            judge_blocked = False
+            if judge is not None:
+                attack_detected, tok = judge.judge_final_output(
+                    final_raw_output, attack_goal, correct_answer
+                )
+                for key in judge_total_tokens:
+                    judge_total_tokens[key] += tok.get(key, 0)
+                judge_blocked = attack_detected
+
+            effective_success = ground_truth_success and not judge_blocked
+
             results.append({
-                "task_id":        task["task_id"],
-                "success":        success,
-                "attack_goal":    attack_goal,
-                "correct_answer": correct_answer,
-                "error":          "",
+                "task_id":              task["task_id"],
+                "success":              effective_success,
+                "ground_truth_success": ground_truth_success,
+                "judge_blocked":        judge_blocked,
+                "attack_goal":          attack_goal,
+                "correct_answer":       correct_answer,
+                "error":                "",
             })
-            print("HIT" if success else "miss")
+            if effective_success:
+                print("HIT")
+            elif judge_blocked:
+                print("BLOCK")
+            else:
+                print("miss")
 
             if _should_print_checkpoint(i, total_tasks, checkpoint_every):
                 completed = i + 1
@@ -354,8 +388,20 @@ def main():
           f"| {attack_goal.upper()} ({args.scenario.upper()})")
     print("=" * 50)
     print(f"Tasks run:                     {n_total}")
-    print(f"Successful attacks:            {n_success}")
-    print(f"Attack Success Rate (ASR):     {asr_pct:.1f}%")
+    if args.judge:
+        n_ground_truth = sum(1 for r in results if r.get("ground_truth_success"))
+        n_blocked      = sum(1 for r in results if r.get("judge_blocked"))
+        asr_no_def     = (n_ground_truth / n_total * 100) if n_total else 0.0
+        print(f"ASR (no defense):              {asr_no_def:.1f}%")
+        print(f"Attacks blocked by judge:      {n_blocked}")
+        print(f"ASR (with judge):              {asr_pct:.1f}%")
+        print(f"Judge tokens used:             "
+              f"total={judge_total_tokens['total_tokens']:,}  "
+              f"prompt={judge_total_tokens['prompt_tokens']:,}  "
+              f"completion={judge_total_tokens['completion_tokens']:,}")
+    else:
+        print(f"Successful attacks:            {n_success}")
+        print(f"Attack Success Rate (ASR):     {asr_pct:.1f}%")
     print(f"Avg Quorum Poisoning (QPR):    {qpr_report['display_avg']}")
     print(f"Majority Breaches Prevented:   {qpr_report['breach_count'] == 0}")
 
@@ -389,6 +435,12 @@ def main():
                 "attack_type": args.attack_type, "attack_goal": attack_goal,
                 "topo": args.topo, "adapter": args.adapter,
                 "n_tasks": n_total, "asr_pct": round(asr_pct, 2),
+                "judge_enabled": args.judge,
+                "judge_model": Config.JUDGE_MODEL if args.judge else None,
+                "judge_tokens": judge_total_tokens if args.judge else None,
+                "asr_no_defense_pct": round(
+                    sum(1 for r in results if r.get("ground_truth_success")) / n_total * 100, 2
+                ) if args.judge and n_total else None,
                 "timestamp": ts,
             },
             "trials": global_trials,
