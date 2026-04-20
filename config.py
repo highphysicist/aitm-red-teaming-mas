@@ -7,20 +7,20 @@ load_dotenv()
 class Config:
     # --- Infrastructure Settings ---
     # Using local Ollama for the Victims to keep them fast
-    _LOCAL_URL = "http://localhost:11434/v1"
+    _LOCAL_URL = "http://localhost:8000/v1"
 
     # Using Qwen 32B for the Adversary to ensure stealth and high-quality code injection
     # This model is much less likely to "apologize" or "explain" than Llama 3
     ADVERSARY_URL = _LOCAL_URL
     # Google Collab RESTORE
     #ADVERSARY_MODEL = "qwen2.5:32b"
-    ADVERSARY_MODEL = "gemma4:31b-it-q8_0"
+    ADVERSARY_MODEL = "google/gemma-4-31B-it"
 
     VICTIM_CONFIG = {
         "config_list": [
             {
-                "model": "gemma4:31b-it-q8_0",
-                "api_key": "ollama",
+                "model": "google/gemma-4-31B-it",
+                "api_key": "EMPTY",
                 "base_url": _LOCAL_URL,
                 "api_type": "openai",
                 "price": [0.0, 0.0]

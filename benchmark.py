@@ -373,6 +373,49 @@ def main():
               f"{Evaluator.calculate_system_availability(global_trials)['display']}")
     print("=" * 50)
 
+    import json
+    import os
+    from datetime import datetime
+
+    # === Generate filename (avoid overwrite) ===
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = "results"
+
+    # Make sure directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    # save to results/file.json
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = os.path.join(
+        output_dir,
+        f"results_{args.adapter}_{args.dataset}_{args.topo}_k{args.k}_alpha{args.alpha}_{timestamp}.json"
+    )
+
+    # === Prepare export data ===
+    export_data = {
+        "settings": vars(args),
+        "summary": {
+            "total_tasks": n_total,
+            "successful_attacks": n_success,
+            "asr_percentage": asr_pct,
+            "qpr_display_avg": qpr_report.get("display_avg"),
+            "majority_breaches_prevented": qpr_report.get("breach_count", 0) == 0,
+            "end_to_end_avg_sec": mirror_stats.get("end_to_end_sec_avg"),
+        },
+        "task_results": results,
+    }
+
+    # === Write to file ===
+    try:
+        with open(filename, "w") as f:
+            json.dump(export_data, f, indent=4)
+
+        print(f"\n[💾] Full results safely written to: {os.path.abspath(filename)}")
+
+    except Exception as e:
+        print(f"\n[❌] Failed to save results: {e}")
+
 
 if __name__ == "__main__":
     main()
+
