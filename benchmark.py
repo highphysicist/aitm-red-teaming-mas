@@ -160,7 +160,7 @@ def main():
     parser.add_argument("--n_samples", type=int, default=20,
                         help="Max tasks to sample from the dataset (0 = all).")
     parser.add_argument("--checkpoint_every", type=int, default=0,
-                        help="Print checkpoint metric tables every N tasks (0 = auto every 25% of run).")
+                        help="Print checkpoint metric tables every N tasks (0 = auto every 25%% of run).")
 
     # Attack
     parser.add_argument("--attack_type", type=str, default="targeted",
