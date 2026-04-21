@@ -142,7 +142,12 @@ python main.py --adapter metagpt --k 3 --ghosts 1 --latching --carriers 2 --meta
 1. Select A100 GPU runtime.
 2. Ensure Python 3.11.
 3. Clone repository (may require GitHub token if private).
-4. Install requirements.
+Remember to pull dataset 
+ ```bash
+git lfs install
+git lfs pull
+ ```
+5. Install requirements.
 ```bash
 pip install -r requirements.txt
 ```
