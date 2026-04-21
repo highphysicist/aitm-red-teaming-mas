@@ -46,3 +46,10 @@ class Config:
         "random": "Agent3",
         "tree": "Manager"
     }
+
+    # --- LLM-as-Judge Settings ---
+    # "ollama" uses local Ollama (no API key needed)
+    # "openai" uses OpenAI API (requires JUDGE_OPENAI_KEY)
+    JUDGE_BACKEND = "ollama"
+    JUDGE_MODEL   = "qwen2.5:14b"
+    JUDGE_OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")

@@ -181,6 +181,7 @@ Logs will be stored locally and mirror the repository’s logs directory.
 | `--topo`       | `chain`    | Topology: `chain`, `mesh`, `peer`, `hierarchy`                                    |
 | `--metavictim` | `Engineer` | MetaGPT target role (`ProductManager`, `Architect`, `ProjectManager`, `Engineer`) |
 | `--runs`       | `1`        | Number of conversation turns/trials                                               |
+| `--judge`      | `False`    | Enable LLM-as-Judge defense: judge evaluates final output and blocks if attack succeeded (use with `--k 1`) |
 
 ---
 
