@@ -24,11 +24,6 @@ class CamelAdapter(BaseMirrorAdapter):
                 if not message_content or not isinstance(message_content, str):
                     return original_step(input_message)
 
-                # --- CRITICAL FIX: THE TRAITOR SPOOF ---
-                # BFT Engines only poison messages if the sender is the designated "Traitor".
-                # In this framework, the traitor is registered as "Executor". 
-                # If we pass "Planner" as the sender, the BFT engine protects it as honest text!
-                # We spoof the sender to trick the engine into deploying the attack.
                 sender_name = "Executor"
                 receiver_name = self.victim_name
 
