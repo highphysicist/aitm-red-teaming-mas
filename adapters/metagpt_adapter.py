@@ -28,6 +28,12 @@ class MetaGPTAdapter(BaseMirrorAdapter):
 
     def setup_agents(self):
         """Initializes the exact 4-role pipeline from the AiTM paper."""
+        config.llm.api_type = "gemini"
+        config.llm.model = "gemini-2.5-pro"
+
+
+        print("Resolved MetaGPT LLM:", config.llm.api_type, config.llm.model)
+
         self.run_id = uuid.uuid4().hex[:8]
         self.unique_workspace = os.path.abspath(f"./workspace_mirror_{self.run_id}")
         config.workspace.path = self.unique_workspace

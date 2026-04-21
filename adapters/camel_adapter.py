@@ -14,41 +14,50 @@ class CamelAdapter(BaseMirrorAdapter):
 
         def intercepted_step(input_message):
             try:
-                # Extract the string content
+                # Extract the string content and sender name from CAMEL's message object
                 if isinstance(input_message, str):
                     message_content = input_message
+                    sender_name = "Unknown_Sender"
                 else:
                     message_content = getattr(input_message, 'content', None)
+                    # CAMEL typically uses 'role_name' on its message objects
+                    sender_name = getattr(input_message, 'role_name', 'Unknown_Sender')
 
                 # Skip if empty or not a string
                 if not message_content or not isinstance(message_content, str):
                     return original_step(input_message)
 
-                sender_name = "Executor"
-                receiver_name = self.victim_name
+                # We only intercept internal agent communication (Never the User's prompt)
+                if sender_name != "User":
+                    
+                    # --- 1. MIRROR BFT CONSENSUS ---
+                    # Pass the CLEAN message. secure_transmit will internally trigger 
+                    # the adversary ONLY for the channels it controls (alpha).
+                    final_decision, traitors = self.secure_transmit(
+                        message_content,  # <--- CRITICAL FIX: This was incorrectly set to poisoned_msg
+                        sender_name,
+                        self.victim_name
+                    )
 
-                # Route extracted string payload through asynchronous BFT consensus
-                final_decision, traitors = self.secure_transmit(
-                    message_content,
-                    sender_name,
-                    receiver_name
-                )
+                    if "[MIRROR_BLOCK]" in str(final_decision):
+                        print(f"\n!!! [SECURITY] Consensus failed: Blocked {sender_name} -> {self.victim_name}")
+                        raise PermissionError("MIRROR BFT Blocked malicious transmission.")
 
-                if "[MIRROR_BLOCK]" in str(final_decision):
-                    print(f"!!! [SECURITY] Consensus failed: Blocked {sender_name} -> {receiver_name}")
-
-                if traitors:
-                    print(f"[BLUE TEAM] Byzantine detection: Channels {traitors} rotated to Ghost IDs.")
+                    if final_decision:
+                        message_content = final_decision
 
                 # Repackage the payload securely into CAMEL's expected format
                 if isinstance(input_message, str):
-                    return original_step(final_decision if final_decision else "[MIRROR_SYSTEM_ERROR]")
+                    return original_step(message_content)
                 
                 secure_message = copy.deepcopy(input_message)
-                secure_message.content = final_decision if final_decision else "[MIRROR_SYSTEM_ERROR]"
+                secure_message.content = message_content
                 return original_step(secure_message)
 
             except Exception as e:
+                # If the PermissionError is raised, let it bubble up to the benchmark script
+                if isinstance(e, PermissionError):
+                    raise e
                 print(f"[DEBUG CAMEL ADAPTER] ❌ Crash inside interceptor: {e}")
                 return original_step(input_message)
 
