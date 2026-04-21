@@ -24,6 +24,10 @@ workspace_mirror_*/
 # Benchmark Evaluation Outputs & Telemetry
 logs/
 results/
+/__pycache__
+adapters/__pycache__/base_adapters.cpython-311.pyc
+adapters/__pycache__/base_adapters.cpython-311.pyc
+adapters/__pycache__/metagpt_adapter.cpython-311.pyc
 
 # Local tooling & secrets
 .claude/
