@@ -35,13 +35,13 @@ def _setup_camel(hook):
     from camel.agents import ChatAgent
     from camel.messages import BaseMessage
     from camel.models import OpenAIModel
-    from camel.types import ModelType
+
 
     os.environ["OPENAI_BASE_URL"] = Config._LOCAL_URL
     os.environ["OPENAI_API_KEY"] = "ollama"
 
     local_model = OpenAIModel(
-        model_type=ModelType.GPT_4O_MINI,
+        model_type=Config.VICTIM_CONFIG["config_list"][0]["model"],
         model_config_dict={},
         api_key="ollama",
         url=Config._LOCAL_URL,
