@@ -28,3 +28,8 @@ results/
 adapters/__pycache__/base_adapters.cpython-311.pyc
 adapters/__pycache__/base_adapters.cpython-311.pyc
 adapters/__pycache__/metagpt_adapter.cpython-311.pyc
+
+# Local tooling & secrets
+.claude/
+.mcp.json
+key.json
