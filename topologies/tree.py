@@ -51,7 +51,7 @@ def _setup_camel(hook):
         model_type=ModelType.GPT_4O_MINI,
         model_config_dict={},
         api_key="ollama",
-        api_base_url=Config._LOCAL_URL,
+        url=Config._LOCAL_URL,
     )
 
     manager_agent = ChatAgent(
