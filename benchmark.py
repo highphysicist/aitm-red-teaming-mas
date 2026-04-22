@@ -217,7 +217,7 @@ def main():
     logger    = MirrorLogger()
     engine    = MirrorEngine(k=args.k, num_text_carriers=args.carriers,
                              max_ghost_channels=args.ghosts)
-    adversary = LlamaAdversary(Config, attack_goal=attack_goal)
+    adversary = LlamaAdversary(Config, attack_goal=attack_goal, adapter_name=args.adapter)
 
     victim_name = Config.TOPOLOGY_TARGETS[args.topo]
 
@@ -443,19 +443,16 @@ def main():
         print(f"System Availability:           "
               f"{Evaluator.calculate_system_availability(global_trials)['display']}")
     print("=" * 50)
-
+    
     import json
     import os
     from datetime import datetime
 
-    # ── Always save summary to results/ ──────────────────────────────────────
+    # Create a filename based on the settings
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = "results"
-    os.makedirs(output_dir, exist_ok=True)
-    filename = os.path.join(
-        output_dir,
-        f"results_{args.adapter}_{args.dataset}_{args.topo}_k{args.k}_alpha{args.alpha}_{timestamp}.json"
-    )
+    filename = f"results_{args.adapter}_{args.dataset}_{args.topo}_k{args.k}_alpha{args.alpha}_{timestamp}.json"
+    
+    # Compile the final data payload
     export_data = {
         "settings": vars(args),
         "summary": {
