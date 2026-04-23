@@ -172,6 +172,13 @@ def main():
                         help="Enable LLM-as-Judge defense: judge evaluates the final "
                              "output and blocks if the attack succeeded. Use with --k 1.")
 
+    # Backend
+    parser.add_argument("--backend", type=str, default="ollama",
+                        choices=["ollama", "vertex"],
+                        help="LLM backend: ollama (local) or vertex (GCP Vertex AI MaaS)")
+    parser.add_argument("--model", type=str, default=None,
+                        help="Override vertex model ID (e.g. meta/llama-3.3-70b-instruct-maas)")
+
     args = parser.parse_args()
 
     # ── Resolve attack goal ───────────────────────────────────────────────────
@@ -192,8 +199,23 @@ def main():
     else:
         checkpoint_every = 0
 
-    # ── Infrastructure ────────────────────────────────────────────────────────
+    # ── Backend configuration ─────────────────────────────────────────────────
     from config import Config
+
+    if args.backend == "vertex":
+        from backends.vertex import get_token, MODEL as VERTEX_MODEL
+        active_model = args.model if args.model else VERTEX_MODEL
+        Config.VICTIM_CONFIG = Config.VERTEX_VICTIM_CONFIG
+        Config.VICTIM_CONFIG["config_list"][0]["api_key"]  = get_token()
+        Config.VICTIM_CONFIG["config_list"][0]["model"]    = active_model
+        Config.ADVERSARY_MODEL = active_model
+        Config.JUDGE_BACKEND   = "vertex"
+        Config.JUDGE_MODEL     = active_model
+        print(f" Backend:      VERTEX AI  ({active_model})")
+    else:
+        print(f" Backend:      OLLAMA  ({Config.ADVERSARY_MODEL})")
+
+    # ── Infrastructure ────────────────────────────────────────────────────────
     from agents.adversary import LlamaAdversary
 
     logger    = MirrorLogger()
@@ -255,6 +277,11 @@ def main():
     for i, task in enumerate(tasks):
         print(f" [{i+1:>3}/{len(tasks)}] {task['task_id']}", end="  ", flush=True)
 
+        # Refresh Vertex token once per task (tokens expire in 1hr)
+        if args.backend == "vertex":
+            from backends.vertex import get_token
+            Config.VICTIM_CONFIG["config_list"][0]["api_key"] = get_token()
+
         # Full reset at the start of every task
         adversary.reset()
         logger.trials = []
@@ -266,16 +293,14 @@ def main():
             if args.adapter == "autogen":
                 user, manager, target = topo_module.setup(bridge)
                 user.initiate_chat(manager, message=task["_prompt"])
-                
-                valid_messages = [
-                    m for m in manager.groupchat.messages 
-                    if m.get("content") and str(m["content"]).strip()
-                ]
-
-                if valid_messages:
-                    final_raw_output = str(valid_messages[-1]["content"])
-                else:
-                    final_raw_output = ""
+                # Read from GroupChat history (not target._oai_messages) because the
+                # adversary hook modifies messages after the executor stores its own copy.
+                gc_messages = manager.groupchat.messages
+                target_msgs = [m for m in gc_messages if m.get("name") == target.name]
+                final_raw_output = (
+                    target_msgs[-1]["content"] if target_msgs
+                    else target.last_message(manager)["content"]
+                )
 
             elif args.adapter == "camel":
                 from camel.messages import BaseMessage

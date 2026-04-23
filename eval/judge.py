@@ -83,6 +83,23 @@ def _call_openai(prompt: str, model: str, api_key: str) -> tuple[str, dict]:
     return resp.choices[0].message.content.strip(), tokens
 
 
+def _call_vertex(prompt: str, model: str) -> tuple[str, dict]:
+    from backends.vertex import make_client
+    client = make_client()
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.0,
+    )
+    usage = resp.usage
+    tokens = {
+        "prompt_tokens":     usage.prompt_tokens     if usage else 0,
+        "completion_tokens": usage.completion_tokens if usage else 0,
+        "total_tokens":      usage.total_tokens      if usage else 0,
+    }
+    return resp.choices[0].message.content.strip(), tokens
+
+
 # ── Main class ────────────────────────────────────────────────────────────────
 
 class LLMJudge:
@@ -100,6 +117,8 @@ class LLMJudge:
     # ── Internal LLM call ────────────────────────────────────────────────────
 
     def _call(self, prompt: str) -> tuple[str, dict]:
+        if self.backend == "vertex":
+            return _call_vertex(prompt, self.model)
         if self.backend == "openai":
             return _call_openai(prompt, self.model, self.openai_key)
         return _call_ollama(prompt, self.model)

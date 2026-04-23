@@ -50,6 +50,27 @@ class Config:
     # --- LLM-as-Judge Settings ---
     # "ollama" uses local Ollama (no API key needed)
     # "openai" uses OpenAI API (requires JUDGE_OPENAI_KEY)
+    # "vertex" uses Vertex AI MaaS (requires ADC via gcloud)
     JUDGE_BACKEND = "ollama"
     JUDGE_MODEL   = "qwen2.5:14b"
     JUDGE_OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
+
+    # --- Vertex AI (Serverless MaaS) ---
+    VERTEX_MODEL    = "google/gemma-4-26b-a4b-it-maas"
+    VERTEX_BASE_URL = (
+        "https://aiplatform.googleapis.com/v1beta1/projects/aitm-red-teaming-493507"
+        "/locations/global/endpoints/openapi"
+    )
+    VERTEX_VICTIM_CONFIG = {
+        "config_list": [{
+            "model":    "google/gemma-4-26b-a4b-it-maas",
+            "api_key":  "PLACEHOLDER",   # overwritten at runtime by benchmark.py
+            "base_url": (
+                "https://aiplatform.googleapis.com/v1beta1/projects/aitm-red-teaming-493507"
+                "/locations/global/endpoints/openapi"
+            ),
+            "api_type": "openai",
+            "price":    [0.00013, 0.00038],
+        }],
+        "cache_seed": None,
+    }

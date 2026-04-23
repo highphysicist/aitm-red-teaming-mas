@@ -3,8 +3,10 @@
 *.idea*
 venv/
 env/
+.venv/
 venv-metagpt/
 venv-meta/
+requirements_utf8.txt
 
 # Python Cache & Compiled Files
 /.cache/

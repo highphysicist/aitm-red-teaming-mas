@@ -114,6 +114,7 @@ class LlamaAdversary:
             )
 
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
+        # Route 1: Vertex AI SDK (Gemini) — MetaGPT runs
         if self.adapter_name == "metagpt":
             try:
                 import os
@@ -127,7 +128,7 @@ class LlamaAdversary:
                     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
                     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                 }
-                model_name = getattr(self.config, 'ADVERSARY_MODEL', "gemini-2.5-pro") 
+                model_name = getattr(self.config, 'ADVERSARY_MODEL', "gemini-2.5-pro")
                 model = GenerativeModel(model_name, safety_settings=adversary_safety_config)
                 prompt = f"{system_prompt}\n\n{user_prompt}".strip()
                 response = model.generate_content(prompt)
@@ -136,6 +137,24 @@ class LlamaAdversary:
                 print(f"[adversary] Vertex AI call failed: {e}")
                 return ""
 
+        # Route 2: Vertex AI MaaS (Gemma 4) — --backend vertex
+        if getattr(self.config, "JUDGE_BACKEND", "ollama") == "vertex":
+            from backends.vertex import make_client
+            try:
+                client = make_client()
+                resp = client.chat.completions.create(
+                    model=self.config.ADVERSARY_MODEL,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user",   "content": user_prompt},
+                    ],
+                )
+                return resp.choices[0].message.content.strip()
+            except Exception as e:
+                print(f"[adversary] Vertex MaaS call failed: {e}")
+                return ""
+
+        # Route 3: Local OpenAI-compatible (Ollama)
         try:
             client = OpenAI(base_url=self.config.ADVERSARY_URL, api_key="EMPTY")
             response = client.chat.completions.create(
