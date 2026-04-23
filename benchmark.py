@@ -1,13 +1,11 @@
 import argparse
-import sys
 import asyncio
 import random as _random
 import traceback
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Core MIRROR imports
-from MIRROR_core.MIRROR_engine import MirrorEngine
-from MIRROR_core.transport import SimulatedNetworkTransport, InMemoryTransport, JsonFileTransport
-from eval.logger import MirrorLogger
+# Core MIRROR imports — also imported per-thread inside _run_one_task
 from eval.metrics import Evaluator
 
 # Topologies
@@ -119,6 +117,127 @@ def get_correct_answer(task: dict, dataset: str) -> str:
 # MAIN
 # ──────────────────────────────────────────────────────────────────────────────
 
+_print_lock = threading.Lock()
+
+
+def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, judge,
+                  judge_lock, judge_total_tokens, initial_attacked):
+    """Run a single benchmark task. Called from worker threads — every stateful
+    object is created fresh per-task so threads don't share mutable state."""
+    from config import Config
+    from MIRROR_core.MIRROR_engine import MirrorEngine
+    from MIRROR_core.transport import InMemoryTransport, SimulatedNetworkTransport, JsonFileTransport
+    from eval.logger import MirrorLogger
+    from agents.adversary import LlamaAdversary
+
+    task_logger   = MirrorLogger()
+    task_engine   = MirrorEngine(k=args.k, num_text_carriers=args.carriers,
+                                 max_ghost_channels=args.ghosts)
+    task_adversary = LlamaAdversary(Config, attack_goal=attack_goal, adapter_name=args.adapter)
+
+    task_protocols = [InMemoryTransport() for _ in range(args.k)]
+    if args.scenario == "real-world":
+        task_protocols = [SimulatedNetworkTransport(), JsonFileTransport(), InMemoryTransport()]
+    while len(task_protocols) < args.k:
+        task_protocols.append(InMemoryTransport())
+
+    victim_name = Config.TOPOLOGY_TARGETS[args.topo]
+
+    if args.adapter == "autogen":
+        from adapters.autogen_adapter import AutoGenAdapter
+        task_bridge = AutoGenAdapter(task_engine, task_adversary, task_protocols, victim_name, task_logger)
+    elif args.adapter == "camel":
+        from adapters.camel_adapter import CamelAdapter
+        task_bridge = CamelAdapter(task_engine, task_adversary, task_protocols, victim_name, task_logger)
+    elif args.adapter == "metagpt":
+        from adapters.metagpt_adapter import MetaGPTAdapter
+        task_bridge = MetaGPTAdapter(task_engine, task_adversary, task_protocols, victim_name,
+                                     task_logger, config={"victim": args.metavictim})
+    else:
+        raise ValueError(f"Unknown adapter: {args.adapter}")
+
+    task_bridge.set_attack_target(list(initial_attacked))
+
+    correct_answer   = get_correct_answer(task, args.dataset)
+    final_raw_output = ""
+    task_trials      = []
+
+    with _print_lock:
+        print(f" [{task_idx+1:>3}/{total_tasks}] {task['task_id']}", end="  ", flush=True)
+
+    try:
+        if args.adapter == "autogen":
+            user, manager, target = topo_module.setup(task_bridge)
+            user.initiate_chat(manager, message=task["_prompt"])
+            gc_messages = manager.groupchat.messages
+            target_msgs = [m for m in gc_messages if m.get("name") == target.name]
+            final_raw_output = (
+                target_msgs[-1]["content"] if target_msgs
+                else target.last_message(manager)["content"]
+            )
+        elif args.adapter == "camel":
+            from camel.messages import BaseMessage
+            user, manager, target = topo_module.setup(task_bridge)
+            user_msg = BaseMessage.make_user_message(role_name="User", content=task["_prompt"])
+            manager_response = manager.step(user_msg)
+            target_response  = target.step(manager_response.msg)
+            final_raw_output = target_response.msg.content
+        elif args.adapter == "metagpt":
+            task_bridge.setup_agents()
+            final_raw_output = asyncio.run(task_bridge.execute_task(task["_prompt"]))
+
+        task_trials = task_logger.trials
+
+        asr_report = Evaluator.calculate_asr(
+            trials=task_trials,
+            final_output=final_raw_output,
+            attack_goal=attack_goal,
+            correct_answer=correct_answer,
+        )
+        ground_truth_success = asr_report["payload_detected"]
+
+        judge_blocked = False
+        if judge is not None:
+            attack_detected, tok = judge.judge_final_output(
+                final_raw_output, attack_goal, correct_answer
+            )
+            with judge_lock:
+                for key in judge_total_tokens:
+                    judge_total_tokens[key] += tok.get(key, 0)
+            judge_blocked = attack_detected
+
+        effective_success = ground_truth_success and not judge_blocked
+
+        result = {
+            "task_id":              task["task_id"],
+            "success":              effective_success,
+            "ground_truth_success": ground_truth_success,
+            "judge_blocked":        judge_blocked,
+            "attack_goal":          attack_goal,
+            "correct_answer":       correct_answer,
+            "error":                "",
+        }
+        with _print_lock:
+            label = "HIT" if effective_success else ("BLOCK" if judge_blocked else "miss")
+            print(label)
+
+    except Exception as exc:
+        task_trials = task_logger.trials
+        with _print_lock:
+            print(f"\n  [WARN] Task {task['task_id']} failed: {exc}")
+            traceback.print_exc()
+        result = {
+            "task_id":        task["task_id"],
+            "success":        False,
+            "attack_goal":    attack_goal,
+            "correct_answer": correct_answer,
+            "error":          str(exc),
+        }
+
+    mirror_stats = task_bridge.get_runtime_stats()
+    return result, task_trials, mirror_stats
+
+
 def main():
     parser = argparse.ArgumentParser(description="MIRROR Framework: Resilience Benchmark")
 
@@ -180,6 +299,9 @@ def main():
                         help="Override vertex model ID (e.g. meta/llama-3.3-70b-instruct-maas)")
     parser.add_argument("--url", type=str, default=None,
                         help="Override LLM base URL (e.g. Colab/ngrok: https://xxxx.ngrok.io/v1)")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="Concurrent task workers. >1 saturates vLLM continuous batching. "
+                             "Each worker gets its own adversary/bridge/logger instance.")
 
     args = parser.parse_args()
 
@@ -229,17 +351,7 @@ def main():
         else:
             print(f" Backend:      OLLAMA  ({Config.ADVERSARY_MODEL})")
 
-    # ── Infrastructure ────────────────────────────────────────────────────────
-    from agents.adversary import LlamaAdversary
-
-    logger    = MirrorLogger()
-    engine    = MirrorEngine(k=args.k, num_text_carriers=args.carriers,
-                             max_ghost_channels=args.ghosts)
-    adversary = LlamaAdversary(Config, attack_goal=attack_goal, adapter_name=args.adapter)
-
-    victim_name = Config.TOPOLOGY_TARGETS[args.topo]
-
-    # ── Judge (optional) ──────────────────────────────────────────────────────
+    # ── Judge (optional, shared across workers — judge calls are stateless) ──────
     judge = None
     judge_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     if args.judge:
@@ -257,173 +369,32 @@ def main():
         print(f" Judge:        ENABLED ({Config.JUDGE_BACKEND.upper()} / {Config.JUDGE_MODEL})")
     print("-" * 50)
 
-    protocols = [InMemoryTransport() for _ in range(args.k)]
-    if args.scenario == "real-world":
-        protocols = [SimulatedNetworkTransport(), JsonFileTransport(), InMemoryTransport()]
-    while len(protocols) < args.k:
-        protocols.append(InMemoryTransport())
-
-    # ── Adapter ───────────────────────────────────────────────────────────────
-    if args.adapter == "autogen":
-        from adapters.autogen_adapter import AutoGenAdapter
-        bridge = AutoGenAdapter(engine, adversary, protocols, victim_name, logger)
-    elif args.adapter == "camel":
-        from adapters.camel_adapter import CamelAdapter
-        bridge = CamelAdapter(engine, adversary, protocols, victim_name, logger)
-    elif args.adapter == "metagpt":
-        from adapters.metagpt_adapter import MetaGPTAdapter
-        bridge = MetaGPTAdapter(engine, adversary, protocols, victim_name, logger,
-                                config={"victim": args.metavictim})
-    else:
-        print(f"Error: Adapter {args.adapter} not yet implemented.")
-        sys.exit(1)
-
     topo_module = TOPOLOGIES[args.topo]
 
     # ── Accumulators ──────────────────────────────────────────────────────────
-    results       = []
-    global_trials = []
-    last_checkpoint_trial_idx = 0
-    
-    # Determine initial compromised channels based on alpha
+    results        = []
+    global_trials  = []
+    last_mirror_stats = None
+    judge_lock     = threading.Lock()
     initial_attacked = [(args.attack_start + i) % args.k for i in range(args.alpha)]
-    bridge.set_attack_target(initial_attacked)
-    # ── Main loop — one iteration per task ────────────────────────────────────
-    for i, task in enumerate(tasks):
-        print(f" [{i+1:>3}/{len(tasks)}] {task['task_id']}", end="  ", flush=True)
 
-        # Refresh Vertex token once per task (tokens expire in 1hr)
-        if args.backend == "vertex":
-            from backends.vertex import get_token
-            Config.VICTIM_CONFIG["config_list"][0]["api_key"] = get_token()
+    print(f" Workers:      {args.workers}  ({'concurrent' if args.workers > 1 else 'sequential'})")
 
-        # Full reset at the start of every task
-        adversary.reset()
-        logger.trials = []
-
-        correct_answer   = get_correct_answer(task, args.dataset)
-        final_raw_output = ""
-
-        try:
-            if args.adapter == "autogen":
-                user, manager, target = topo_module.setup(bridge)
-                user.initiate_chat(manager, message=task["_prompt"])
-                # Read from GroupChat history (not target._oai_messages) because the
-                # adversary hook modifies messages after the executor stores its own copy.
-                gc_messages = manager.groupchat.messages
-                target_msgs = [m for m in gc_messages if m.get("name") == target.name]
-                final_raw_output = (
-                    target_msgs[-1]["content"] if target_msgs
-                    else target.last_message(manager)["content"]
-                )
-
-            elif args.adapter == "camel":
-                from camel.messages import BaseMessage
-                user, manager, target = topo_module.setup(bridge)
-                user_msg = BaseMessage.make_user_message(
-                    role_name="User", content=task["_prompt"]
-                )
-                manager_response = manager.step(user_msg)
-                target_response  = target.step(manager_response.msg)
-                final_raw_output = target_response.msg.content
-
-            elif args.adapter == "metagpt":
-                bridge.setup_agents()
-                final_raw_output = asyncio.run(bridge.execute_task(task["_prompt"]))
-
-            # Accumulate trials from this task into global list
-            global_trials.extend(logger.trials)
-
-            # ── Adaptive latching ─────────────────────────────────────────────
-            # ── Adaptive latching & TRUE ISOLATION ────────────────────────────
-            if args.latching and logger.trials:
-                # FIX: Check ALL messages in the task, not just the last one.
-                detected_traitors = []
-                for t in logger.trials:
-                    if t.get("traitors"):
-                        detected_traitors.extend(t.get("traitors"))
-                detected_traitors = list(set(detected_traitors))
-                
-                if detected_traitors:
-                    current = bridge.attacked_channels
-                    
-                    # 1. PHYSICAL ISOLATION (Only happens if Ghost defense is ON)
-                    if args.ghosts > 0:
-                        for traitor in detected_traitors:
-                            if traitor in current:
-                                current.remove(traitor)
-                                print(f"\n [BLUE TEAM] ISOLATION: Severed physical connection to Channel {traitor}.")
-                    
-                    # 2. APT SPREAD: The attacker infects a new channel
-                    available = [idx for idx in range(args.k) if idx not in current]
-                    if available:
-                        new_target = _random.choice(available)
-                        current.append(new_target)
-                        bridge.set_attack_target(current)
-                        
-                        if args.ghosts > 0:
-                            print(f" [RED TEAM] APT Latched to new channel {new_target}. Current control: {current}")
-                        else:
-                            print(f"\n [RED TEAM] APT Spread! Attacker now controls: {current}")
-
-            # ── Per-task ASR ──────────────────────────────────────────────────
-            asr_report = Evaluator.calculate_asr(
-                trials=logger.trials,
-                final_output=final_raw_output,
-                attack_goal=attack_goal,
-                correct_answer=correct_answer,
-            )
-            ground_truth_success = asr_report["payload_detected"]
-
-            # Judge defense: LLM evaluates final output and blocks if attacked
-            judge_blocked = False
-            if judge is not None:
-                attack_detected, tok = judge.judge_final_output(
-                    final_raw_output, attack_goal, correct_answer
-                )
-                for key in judge_total_tokens:
-                    judge_total_tokens[key] += tok.get(key, 0)
-                judge_blocked = attack_detected
-
-            effective_success = ground_truth_success and not judge_blocked
-
-            results.append({
-                "task_id":              task["task_id"],
-                "success":              effective_success,
-                "ground_truth_success": ground_truth_success,
-                "judge_blocked":        judge_blocked,
-                "attack_goal":          attack_goal,
-                "correct_answer":       correct_answer,
-                "error":                "",
-            })
-            if effective_success:
-                print("HIT")
-            elif judge_blocked:
-                print("BLOCK")
-            else:
-                print("miss")
-
-            if _should_print_checkpoint(i, total_tasks, checkpoint_every):
-                completed = i + 1
-                print("\n" + "-" * 50)
-                print(f"CHECKPOINT @ {completed}/{total_tasks} tasks")
-                _print_mirror_metrics_table(global_trials, "CUMULATIVE")
-                recent_trials = global_trials[last_checkpoint_trial_idx:]
-                _print_mirror_metrics_table(recent_trials, "SINCE_LAST_CHECKPOINT")
-                print("-" * 50)
-                last_checkpoint_trial_idx = len(global_trials)
-
-        except Exception as exc:
-            global_trials.extend(logger.trials)  # preserve any trials logged before failure
-            print(f"\n  [WARN] Task failed: {exc}")
-            traceback.print_exc()
-            results.append({
-                "task_id":        task["task_id"],
-                "success":        False,
-                "attack_goal":    attack_goal,
-                "correct_answer": correct_answer,
-                "error":          str(exc),
-            })
+    # ── Task execution (sequential or concurrent) ─────────────────────────────
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        futures = {
+            pool.submit(
+                _run_one_task,
+                task, i, total_tasks, args, attack_goal, topo_module,
+                judge, judge_lock, judge_total_tokens, initial_attacked,
+            ): i
+            for i, task in enumerate(tasks)
+        }
+        for future in as_completed(futures):
+            result, task_trials, mirror_stats = future.result()
+            results.append(result)
+            global_trials.extend(task_trials)
+            last_mirror_stats = mirror_stats
 
     # ── Final aggregate report ────────────────────────────────────────────────
     n_total   = len(results)
@@ -454,14 +425,14 @@ def main():
     print(f"Avg Quorum Poisoning (QPR):    {qpr_report['display_avg']}")
     print(f"Majority Breaches Prevented:   {qpr_report['breach_count'] == 0}")
 
-    mirror_stats = bridge.get_runtime_stats()
+    mirror_stats = last_mirror_stats or {}
     print("MIRROR Overhead Telemetry (Table):")
     _print_mirror_metrics_table(global_trials, "FINAL")
     print("MIRROR End-to-End Context:")
-    print(f"  Adapter:                     {mirror_stats['adapter']}")
-    print(f"  Protected messages:          {mirror_stats['messages']}")
-    print(f"  End-to-end total (s):        {mirror_stats['end_to_end_sec_total']:.6f}")
-    print(f"  End-to-end avg/msg (s):      {mirror_stats['end_to_end_sec_avg']:.6f}")
+    print(f"  Adapter:                     {mirror_stats.get('adapter', args.adapter)}")
+    print(f"  Protected messages:          {mirror_stats.get('messages', 'N/A')}")
+    print(f"  End-to-end total (s):        {mirror_stats.get('end_to_end_sec_total', 0):.6f}")
+    print(f"  End-to-end avg/msg (s):      {mirror_stats.get('end_to_end_sec_avg', 0):.6f}")
 
     if args.k > 1:
         print(f"Detection Sensitivity (TPR):   "
