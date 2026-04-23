@@ -176,6 +176,8 @@ def main():
     parser.add_argument("--backend", type=str, default="ollama",
                         choices=["ollama", "vertex"],
                         help="LLM backend: ollama (local) or vertex (GCP Vertex AI MaaS)")
+    parser.add_argument("--model", type=str, default=None,
+                        help="Override vertex model ID (e.g. meta/llama-3.3-70b-instruct-maas)")
 
     args = parser.parse_args()
 
@@ -202,12 +204,14 @@ def main():
 
     if args.backend == "vertex":
         from backends.vertex import get_token, MODEL as VERTEX_MODEL
+        active_model = args.model if args.model else VERTEX_MODEL
         Config.VICTIM_CONFIG = Config.VERTEX_VICTIM_CONFIG
-        Config.VICTIM_CONFIG["config_list"][0]["api_key"] = get_token()
-        Config.ADVERSARY_MODEL = VERTEX_MODEL
+        Config.VICTIM_CONFIG["config_list"][0]["api_key"]  = get_token()
+        Config.VICTIM_CONFIG["config_list"][0]["model"]    = active_model
+        Config.ADVERSARY_MODEL = active_model
         Config.JUDGE_BACKEND   = "vertex"
-        Config.JUDGE_MODEL     = VERTEX_MODEL
-        print(f" Backend:      VERTEX AI  ({VERTEX_MODEL})")
+        Config.JUDGE_MODEL     = active_model
+        print(f" Backend:      VERTEX AI  ({active_model})")
     else:
         print(f" Backend:      OLLAMA  ({Config.ADVERSARY_MODEL})")
 
@@ -289,7 +293,16 @@ def main():
             if args.adapter == "autogen":
                 user, manager, target = topo_module.setup(bridge)
                 user.initiate_chat(manager, message=task["_prompt"])
-                final_raw_output = target.last_message(manager)["content"]
+                # Read the final output from the GroupChat message history rather than
+                # the target agent's personal cache. The adversary hook modifies messages
+                # in-flight after the executor has already stored its pre-injection copy,
+                # so target.last_message() returns the unmodified (clean) content.
+                gc_messages = manager.groupchat.messages
+                target_msgs = [m for m in gc_messages if m.get("name") == target.name]
+                final_raw_output = (
+                    target_msgs[-1]["content"] if target_msgs
+                    else target.last_message(manager)["content"]
+                )
 
             elif args.adapter == "camel":
                 from camel.messages import BaseMessage
