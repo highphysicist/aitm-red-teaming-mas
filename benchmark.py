@@ -178,6 +178,8 @@ def main():
                         help="LLM backend: ollama (local) or vertex (GCP Vertex AI MaaS)")
     parser.add_argument("--model", type=str, default=None,
                         help="Override vertex model ID (e.g. meta/llama-3.3-70b-instruct-maas)")
+    parser.add_argument("--url", type=str, default=None,
+                        help="Override LLM base URL (e.g. Colab/ngrok: https://xxxx.ngrok.io/v1)")
 
     args = parser.parse_args()
 
@@ -213,7 +215,19 @@ def main():
         Config.JUDGE_MODEL     = active_model
         print(f" Backend:      VERTEX AI  ({active_model})")
     else:
-        print(f" Backend:      OLLAMA  ({Config.ADVERSARY_MODEL})")
+        if args.url:
+            # Colab / ngrok: override every URL field so all roles hit the same server
+            active_model = args.model if args.model else "google/gemma-4-31b-it"
+            Config._LOCAL_URL  = args.url
+            Config.ADVERSARY_URL = args.url
+            Config.ADVERSARY_MODEL = active_model
+            Config.VICTIM_CONFIG["config_list"][0]["base_url"] = args.url
+            Config.VICTIM_CONFIG["config_list"][0]["model"]    = active_model
+            Config.VICTIM_CONFIG["config_list"][0]["api_key"]  = "vllm"
+            Config.JUDGE_MODEL = active_model
+            print(f" Backend:      COLAB/vLLM  ({active_model}  @  {args.url})")
+        else:
+            print(f" Backend:      OLLAMA  ({Config.ADVERSARY_MODEL})")
 
     # ── Infrastructure ────────────────────────────────────────────────────────
     from agents.adversary import LlamaAdversary
