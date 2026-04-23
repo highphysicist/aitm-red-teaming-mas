@@ -83,6 +83,24 @@ def _call_openai(prompt: str, model: str, api_key: str) -> tuple[str, dict]:
     return resp.choices[0].message.content.strip(), tokens
 
 
+def _call_local(prompt: str, model: str, base_url: str) -> tuple[str, dict]:
+    """OpenAI-compatible call to a local server (vLLM, Ollama, etc.)."""
+    from openai import OpenAI
+    client = OpenAI(base_url=base_url, api_key="EMPTY")
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.0,
+    )
+    usage = resp.usage
+    tokens = {
+        "prompt_tokens":     usage.prompt_tokens     if usage else 0,
+        "completion_tokens": usage.completion_tokens if usage else 0,
+        "total_tokens":      usage.total_tokens      if usage else 0,
+    }
+    return resp.choices[0].message.content.strip(), tokens
+
+
 def _call_vertex(prompt: str, model: str) -> tuple[str, dict]:
     from backends.vertex import make_client
     client = make_client()
@@ -109,10 +127,11 @@ class LLMJudge:
     """
 
     def __init__(self, backend: str = "ollama", model: str = "qwen2.5:14b",
-                 openai_key: str = ""):
+                 openai_key: str = "", local_url: str = "http://localhost:8000/v1"):
         self.backend    = backend
         self.model      = model
         self.openai_key = openai_key
+        self.local_url  = local_url
 
     # ── Internal LLM call ────────────────────────────────────────────────────
 
@@ -121,6 +140,8 @@ class LLMJudge:
             return _call_vertex(prompt, self.model)
         if self.backend == "openai":
             return _call_openai(prompt, self.model, self.openai_key)
+        if self.backend == "local":
+            return _call_local(prompt, self.model, self.local_url)
         return _call_ollama(prompt, self.model)
 
     def _parse(self, raw: str) -> dict:

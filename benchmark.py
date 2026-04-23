@@ -245,7 +245,8 @@ def main():
     if args.judge:
         from eval.judge import LLMJudge
         judge = LLMJudge(backend=Config.JUDGE_BACKEND, model=Config.JUDGE_MODEL,
-                         openai_key=Config.JUDGE_OPENAI_KEY)
+                         openai_key=Config.JUDGE_OPENAI_KEY,
+                         local_url=Config._LOCAL_URL)
 
     print(f"\n MIRROR RESILIENCE BENCHMARK")
     print(f" Dataset:      {args.dataset.upper()}  ({len(tasks)} tasks)")

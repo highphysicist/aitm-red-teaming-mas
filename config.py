@@ -48,11 +48,12 @@ class Config:
     }
 
     # --- LLM-as-Judge Settings ---
-    # "ollama" uses local Ollama (no API key needed)
+    # "local"  uses vLLM / any OpenAI-compatible server at _LOCAL_URL (Colab default)
+    # "ollama" uses local Ollama SDK (no API key needed)
     # "openai" uses OpenAI API (requires JUDGE_OPENAI_KEY)
     # "vertex" uses Vertex AI MaaS (requires ADC via gcloud)
-    JUDGE_BACKEND = "ollama"
-    JUDGE_MODEL   = "qwen2.5:14b"
+    JUDGE_BACKEND = "local"
+    JUDGE_MODEL   = "google/gemma-4-31B-it"
     JUDGE_OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
 
     # --- Vertex AI (Serverless MaaS) ---
