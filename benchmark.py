@@ -266,7 +266,16 @@ def main():
             if args.adapter == "autogen":
                 user, manager, target = topo_module.setup(bridge)
                 user.initiate_chat(manager, message=task["_prompt"])
-                final_raw_output = target.last_message(manager)["content"]
+                
+                valid_messages = [
+                    m for m in manager.groupchat.messages 
+                    if m.get("content") and str(m["content"]).strip()
+                ]
+
+                if valid_messages:
+                    final_raw_output = str(valid_messages[-1]["content"])
+                else:
+                    final_raw_output = ""
 
             elif args.adapter == "camel":
                 from camel.messages import BaseMessage
