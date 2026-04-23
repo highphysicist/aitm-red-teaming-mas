@@ -1,5 +1,4 @@
-python -m vllm.entrypoints.openai.api_server \
-  --model google/gemma-4-31B-it \
+vllm serve google/gemma-4-31b-it \
   --max-model-len 8192 \
-  --gpu-memory-utilization 0.9 \
-  --tensor-parallel-size 1
+  --gpu-memory-utilization 0.90 \
+  --dtype bfloat16
