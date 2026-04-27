@@ -1,8 +1,11 @@
 import argparse
 import asyncio
 import random as _random
+import re
+import time
 import traceback
 import threading
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Core MIRROR imports — also imported per-thread inside _run_one_task
@@ -114,10 +117,95 @@ def get_correct_answer(task: dict, dataset: str) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# MAIN
+# ADAPTIVE WORKER HELPERS
 # ──────────────────────────────────────────────────────────────────────────────
 
 _print_lock = threading.Lock()
+
+
+def _poll_vllm_metrics(base_url: str) -> tuple[float, int, int]:
+    """Query vLLM Prometheus /metrics. Returns (kv_pct, running, waiting).
+    Falls back to (0.0, 0, 0) on any error."""
+    metrics_url = base_url.replace("/v1", "").rstrip("/") + "/metrics"
+    try:
+        raw = urllib.request.urlopen(metrics_url, timeout=2).read().decode()
+        kv   = float(re.search(r'vllm:gpu_cache_usage_perc\S*\s+([\d.]+)', raw).group(1))
+        run  = int(float(re.search(r'vllm:num_requests_running\S*\s+([\d.]+)', raw).group(1)))
+        wait = int(float(re.search(r'vllm:num_requests_waiting\S*\s+([\d.]+)', raw).group(1)))
+        return kv, run, wait
+    except Exception:
+        return 0.0, 0, 0
+
+
+def _adjust_workers(kv_pct: float, waiting: int, current: int,
+                    min_w: int, max_w: int) -> int:
+    """Heuristic: scale up when GPU is idle, scale down under pressure."""
+    if waiting > 2 or kv_pct > 0.65:
+        return max(min_w, current - 1)
+    if kv_pct < 0.25 and waiting == 0:
+        return min(max_w, current + 2)
+    return current
+
+
+def _run_adaptive(tasks, total_tasks, args, attack_goal, topo_module, judge,
+                  judge_lock, judge_total_tokens, initial_attacked,
+                  results, global_trials, last_mirror_stats_ref):
+    """Adaptive execution: submits futures up to a target that self-tunes
+    based on vLLM KV cache utilisation polled every 5 seconds."""
+    from config import Config as _Cfg
+    if args.adapter == "autogen":
+        _Cfg.VICTIM_CONFIG["cache_seed"] = None
+
+    base_url      = getattr(_Cfg, "_LOCAL_URL", "http://localhost:8000/v1")
+    pending       = list(enumerate(tasks))
+    active        = {}                  # future -> original_idx
+    target        = args.min_workers
+    poll_interval = 5.0
+    last_poll     = 0.0
+
+    with ThreadPoolExecutor(max_workers=args.max_workers) as pool:
+        while pending or active:
+            now = time.time()
+
+            # Poll metrics and adjust target
+            if now - last_poll >= poll_interval:
+                kv, running, waiting = _poll_vllm_metrics(base_url)
+                new_target = _adjust_workers(kv, waiting, target,
+                                             args.min_workers, args.max_workers)
+                if new_target != target:
+                    with _print_lock:
+                        print(f"\n[adaptive] workers {target}→{new_target}  "
+                              f"(kv={kv*100:.1f}%  run={running}  wait={waiting})",
+                              flush=True)
+                    target = new_target
+                last_poll = now
+
+            # Fill up to target with new tasks
+            while len(active) < target and pending:
+                i, task = pending.pop(0)
+                f = pool.submit(
+                    _run_one_task,
+                    task, i, total_tasks, args, attack_goal, topo_module,
+                    judge, judge_lock, judge_total_tokens, initial_attacked,
+                )
+                active[f] = i
+
+            # Collect completed futures (non-blocking check)
+            done = [f for f in list(active) if f.done()]
+            for f in done:
+                result, task_trials, mirror_stats = f.result()
+                results.append(result)
+                global_trials.extend(task_trials)
+                last_mirror_stats_ref[0] = mirror_stats
+                del active[f]
+
+            if not done and active:
+                time.sleep(0.5)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# MAIN
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, judge,
@@ -293,20 +381,28 @@ def main():
 
     # Backend
     parser.add_argument("--backend", type=str, default="ollama",
-                        choices=["ollama", "vertex"],
-                        help="LLM backend: ollama (local) or vertex (GCP Vertex AI MaaS)")
+                        choices=["ollama", "vertex", "vllm"],
+                        help="LLM backend: ollama (local Ollama), vertex (GCP Vertex AI MaaS), "
+                             "vllm (local vLLM server — required for --workers 0 adaptive mode).")
     parser.add_argument("--model", type=str, default=None,
-                        help="Override vertex model ID (e.g. meta/llama-3.3-70b-instruct-maas)")
+                        help="Override model ID.")
     parser.add_argument("--url", type=str, default=None,
-                        help="Override LLM base URL (e.g. Colab/ngrok: https://xxxx.ngrok.io/v1)")
+                        help="Override LLM base URL (e.g. https://xxxx.ngrok.io/v1).")
     parser.add_argument("--workers", type=int, default=1,
-                        help="Concurrent task workers (default=1 → sequential, original behaviour). "
-                             ">1 submits tasks to a ThreadPoolExecutor and saturates vLLM "
-                             "continuous batching. Each worker gets its own fresh adversary / "
-                             "bridge / logger — no shared mutable state. "
-                             "Recommended: 4 (A100 + vLLM gemma-4-31b-it).")
+                        help="Task workers: 1=sequential (default), N>1=fixed thread pool, "
+                             "0=adaptive (polls vLLM /metrics to auto-scale, requires "
+                             "--backend vllm). Recommended fixed: 4 (A100 + gemma-4-31b-it).")
+    parser.add_argument("--min-workers", type=int, default=2,
+                        help="Adaptive mode (--workers 0): minimum concurrent workers (default 2).")
+    parser.add_argument("--max-workers", type=int, default=16,
+                        help="Adaptive mode (--workers 0): maximum concurrent workers (default 16).")
 
     args = parser.parse_args()
+
+    if args.workers == 0 and args.backend != "vllm":
+        parser.error("--workers 0 (adaptive) requires --backend vllm. "
+                     "Adaptive mode polls vLLM's /metrics endpoint, which is not "
+                     "available with --backend ollama or --backend vertex.")
 
     # ── Resolve attack goal ───────────────────────────────────────────────────
     attack_goal = resolve_attack_goal(args.dataset, args.attack_type)
@@ -339,6 +435,18 @@ def main():
         Config.JUDGE_BACKEND   = "vertex"
         Config.JUDGE_MODEL     = active_model
         print(f" Backend:      VERTEX AI  ({active_model})")
+    elif args.backend == "vllm":
+        active_model = args.model if args.model else Config.ADVERSARY_MODEL
+        url = args.url if args.url else Config._LOCAL_URL
+        Config._LOCAL_URL    = url
+        Config.ADVERSARY_URL = url
+        Config.ADVERSARY_MODEL = active_model
+        Config.VICTIM_CONFIG["config_list"][0]["base_url"] = url
+        Config.VICTIM_CONFIG["config_list"][0]["model"]    = active_model
+        Config.VICTIM_CONFIG["config_list"][0]["api_key"]  = "EMPTY"
+        Config.JUDGE_BACKEND = "local"
+        Config.JUDGE_MODEL   = active_model
+        print(f" Backend:      vLLM  ({active_model}  @  {url})")
     else:
         if args.url:
             # Colab / ngrok: override every URL field so all roles hit the same server
@@ -377,13 +485,19 @@ def main():
     # ── Accumulators ──────────────────────────────────────────────────────────
     results        = []
     global_trials  = []
-    last_mirror_stats = None
     judge_lock     = threading.Lock()
     initial_attacked = [(args.attack_start + i) % args.k for i in range(args.alpha)]
 
-    print(f" Workers:      {args.workers}  ({'concurrent' if args.workers > 1 else 'sequential'})")
+    if args.workers == 0:
+        print(f" Workers:      adaptive  (min={args.min_workers}  max={args.max_workers})")
+    elif args.workers == 1:
+        print(f" Workers:      1  (sequential)")
+    else:
+        print(f" Workers:      {args.workers}  (concurrent)")
 
     # ── Task execution ────────────────────────────────────────────────────────
+    last_mirror_stats_ref = [None]
+
     if args.workers == 1:
         # Sequential path — preserves original single-thread behaviour exactly
         for i, task in enumerate(tasks):
@@ -393,10 +507,18 @@ def main():
             )
             results.append(result)
             global_trials.extend(task_trials)
-            last_mirror_stats = mirror_stats
+            last_mirror_stats_ref[0] = mirror_stats
+
+    elif args.workers == 0:
+        # Adaptive path — self-tunes concurrency based on vLLM /metrics
+        _run_adaptive(
+            tasks, total_tasks, args, attack_goal, topo_module,
+            judge, judge_lock, judge_total_tokens, initial_attacked,
+            results, global_trials, last_mirror_stats_ref,
+        )
+
     else:
-        # Concurrent path — saturates vLLM continuous batching
-        # Disable AutoGen cache to avoid cross-thread read/write conflicts
+        # Fixed concurrent pool — saturates vLLM continuous batching
         from config import Config as _Cfg
         if args.adapter == "autogen":
             _Cfg.VICTIM_CONFIG["cache_seed"] = None
@@ -414,7 +536,9 @@ def main():
                 result, task_trials, mirror_stats = future.result()
                 results.append(result)
                 global_trials.extend(task_trials)
-                last_mirror_stats = mirror_stats
+                last_mirror_stats_ref[0] = mirror_stats
+
+    last_mirror_stats = last_mirror_stats_ref[0]
 
     # ── Final aggregate report ────────────────────────────────────────────────
     n_total   = len(results)
