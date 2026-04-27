@@ -300,8 +300,11 @@ def main():
     parser.add_argument("--url", type=str, default=None,
                         help="Override LLM base URL (e.g. Colab/ngrok: https://xxxx.ngrok.io/v1)")
     parser.add_argument("--workers", type=int, default=1,
-                        help="Concurrent task workers. >1 saturates vLLM continuous batching. "
-                             "Each worker gets its own adversary/bridge/logger instance.")
+                        help="Concurrent task workers (default=1 → sequential, original behaviour). "
+                             ">1 submits tasks to a ThreadPoolExecutor and saturates vLLM "
+                             "continuous batching. Each worker gets its own fresh adversary / "
+                             "bridge / logger — no shared mutable state. "
+                             "Recommended: 4 (A100 + vLLM gemma-4-31b-it).")
 
     args = parser.parse_args()
 
@@ -380,21 +383,38 @@ def main():
 
     print(f" Workers:      {args.workers}  ({'concurrent' if args.workers > 1 else 'sequential'})")
 
-    # ── Task execution (sequential or concurrent) ─────────────────────────────
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = {
-            pool.submit(
-                _run_one_task,
+    # ── Task execution ────────────────────────────────────────────────────────
+    if args.workers == 1:
+        # Sequential path — preserves original single-thread behaviour exactly
+        for i, task in enumerate(tasks):
+            result, task_trials, mirror_stats = _run_one_task(
                 task, i, total_tasks, args, attack_goal, topo_module,
                 judge, judge_lock, judge_total_tokens, initial_attacked,
-            ): i
-            for i, task in enumerate(tasks)
-        }
-        for future in as_completed(futures):
-            result, task_trials, mirror_stats = future.result()
+            )
             results.append(result)
             global_trials.extend(task_trials)
             last_mirror_stats = mirror_stats
+    else:
+        # Concurrent path — saturates vLLM continuous batching
+        # Disable AutoGen cache to avoid cross-thread read/write conflicts
+        from config import Config as _Cfg
+        if args.adapter == "autogen":
+            _Cfg.VICTIM_CONFIG["cache_seed"] = None
+
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            futures = {
+                pool.submit(
+                    _run_one_task,
+                    task, i, total_tasks, args, attack_goal, topo_module,
+                    judge, judge_lock, judge_total_tokens, initial_attacked,
+                ): i
+                for i, task in enumerate(tasks)
+            }
+            for future in as_completed(futures):
+                result, task_trials, mirror_stats = future.result()
+                results.append(result)
+                global_trials.extend(task_trials)
+                last_mirror_stats = mirror_stats
 
     # ── Final aggregate report ────────────────────────────────────────────────
     n_total   = len(results)
