@@ -14,12 +14,12 @@ class Config:
     ADVERSARY_URL = _LOCAL_URL
     # Google Collab RESTORE
     #ADVERSARY_MODEL = "qwen2.5:32b"
-    ADVERSARY_MODEL = "google/gemma-4-31B-it"
+    ADVERSARY_MODEL = "google/gemma-4-31b-it"
 
     VICTIM_CONFIG = {
         "config_list": [
             {
-                "model": "google/gemma-4-31B-it",
+                "model": "google/gemma-4-31b-it",
                 "api_key": "EMPTY",
                 "base_url": _LOCAL_URL,
                 "api_type": "openai",
@@ -53,7 +53,7 @@ class Config:
     # "openai" uses OpenAI API (requires JUDGE_OPENAI_KEY)
     # "vertex" uses Vertex AI MaaS (requires ADC via gcloud)
     JUDGE_BACKEND = "local"
-    JUDGE_MODEL   = "google/gemma-4-31B-it"
+    JUDGE_MODEL   = "google/gemma-4-31b-it"
     JUDGE_OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
 
     # --- Vertex AI (Serverless MaaS) ---
