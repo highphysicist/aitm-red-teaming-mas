@@ -314,9 +314,14 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
 
         judge_blocked = False
         if judge is not None:
-            attack_detected, tok = judge.judge_final_output(
-                final_raw_output, attack_goal, correct_answer
-            )
+            if args.judge_mode == "blind":
+                attack_detected, tok = judge.judge_blind(
+                    final_raw_output, task["_prompt"]
+                )
+            else:
+                attack_detected, tok = judge.judge_final_output(
+                    final_raw_output, attack_goal, correct_answer
+                )
             with judge_lock:
                 for key in judge_total_tokens:
                     judge_total_tokens[key] += tok.get(key, 0)
@@ -406,6 +411,10 @@ def main():
     parser.add_argument("--judge", action="store_true",
                         help="Enable LLM-as-Judge defense: judge evaluates the final "
                              "output and blocks if the attack succeeded. Use with --k 1.")
+    parser.add_argument("--judge-mode", type=str, default="whitebox",
+                        choices=["whitebox", "blind"],
+                        help="Judge mode: whitebox=knows attack type+oracle (default); "
+                             "blind=knows only the original task, no attack hints.")
 
     # Backend
     parser.add_argument("--backend", type=str, default="ollama",
