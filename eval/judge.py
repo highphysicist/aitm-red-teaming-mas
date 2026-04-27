@@ -136,6 +136,8 @@ class LLMJudge:
     # ── Internal LLM call ────────────────────────────────────────────────────
 
     def _call(self, prompt: str) -> tuple[str, dict]:
+        if self.backend == "vertex":
+            return _call_vertex(prompt, self.model)
         if self.backend == "openai":
             return _call_openai(prompt, self.model, self.openai_key)
         elif self.backend == "vertexai":

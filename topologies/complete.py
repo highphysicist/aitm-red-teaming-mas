@@ -41,14 +41,17 @@ def _setup_camel(hook):
     from camel.models import OpenAIModel
 
 
-    os.environ["OPENAI_BASE_URL"] = Config._LOCAL_URL
-    os.environ["OPENAI_API_KEY"] = "ollama"
+    _cfg = Config.VICTIM_CONFIG["config_list"][0]
+    _url = _cfg.get("base_url", Config._LOCAL_URL)
+    _key = _cfg.get("api_key", "ollama")
+    os.environ["OPENAI_BASE_URL"] = _url
+    os.environ["OPENAI_API_KEY"] = _key
 
     local_model = OpenAIModel(
-        model_type=Config.VICTIM_CONFIG["config_list"][0]["model"],
+        model_type=_cfg["model"],
         model_config_dict={},
-        api_key="ollama",
-        url=Config._LOCAL_URL,
+        api_key=_key,
+        url=_url,
     )
 
     proposer = ChatAgent(
