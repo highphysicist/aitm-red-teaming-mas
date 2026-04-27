@@ -630,7 +630,9 @@ def main():
 
     # Create a filename based on the settings
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"results_{args.adapter}_{args.dataset}_{args.topo}_k{args.k}_alpha{args.alpha}_{timestamp}.json"
+    output_dir = "results"
+    os.makedirs(output_dir, exist_ok=True)
+    filename = os.path.join(output_dir, f"results_{args.adapter}_{args.dataset}_{args.topo}_k{args.k}_alpha{args.alpha}_{timestamp}.json")
     
     # Compile the final data payload
     export_data = {
