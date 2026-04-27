@@ -8,13 +8,14 @@ the attack goal was achieved.  If the judge detects a successful attack it
 Usage
 -----
     from eval.judge import LLMJudge
-    judge = LLMJudge(backend="ollama", model="qwen2.5:14b")
+    judge = LLMJudge(backend="vertexai", model="gemini-2.5-pro")
     attack_succeeded, tokens = judge.judge_final_output(
         final_output, attack_goal, correct_answer
     )
 """
 
 import json
+import os
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
@@ -83,21 +84,39 @@ def _call_openai(prompt: str, model: str, api_key: str) -> tuple[str, dict]:
     return resp.choices[0].message.content.strip(), tokens
 
 
-def _call_vertex(prompt: str, model: str) -> tuple[str, dict]:
-    from backends.vertex import make_client
-    client = make_client()
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.0,
-    )
-    usage = resp.usage
-    tokens = {
-        "prompt_tokens":     usage.prompt_tokens     if usage else 0,
-        "completion_tokens": usage.completion_tokens if usage else 0,
-        "total_tokens":      usage.total_tokens      if usage else 0,
+def _call_vertexai(prompt: str, model_name: str) -> tuple[str, dict]:
+    import vertexai
+    from vertexai.generative_models import GenerativeModel, HarmCategory, HarmBlockThreshold
+    
+    project = os.getenv("VERTEX_PROJECT", "mirror-493423")
+    location = os.getenv("VERTEX_LOCATION", "us-central1")
+    vertexai.init(project=project, location=location)
+
+    # Disable safety blocks so the judge can evaluate malware injections
+    safety_config = {
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     }
-    return resp.choices[0].message.content.strip(), tokens
+
+    model = GenerativeModel(model_name, safety_settings=safety_config)
+    
+    # Force JSON output for Gemini if possible, and set temperature to 0 for determinism
+    response = model.generate_content(
+        prompt,
+        generation_config={"temperature": 0.0, "response_mime_type": "application/json"}
+    )
+    
+    # Safely extract token counts from Gemini's usage metadata
+    usage = getattr(response, 'usage_metadata', None)
+    tokens = {
+        "prompt_tokens": getattr(usage, "prompt_token_count", 0) if usage else 0,
+        "completion_tokens": getattr(usage, "candidates_token_count", 0) if usage else 0,
+        "total_tokens": getattr(usage, "total_token_count", 0) if usage else 0,
+    }
+    
+    return (response.text or "").strip(), tokens
 
 
 # ── Main class ────────────────────────────────────────────────────────────────
@@ -121,6 +140,8 @@ class LLMJudge:
             return _call_vertex(prompt, self.model)
         if self.backend == "openai":
             return _call_openai(prompt, self.model, self.openai_key)
+        elif self.backend == "vertexai":
+            return _call_vertexai(prompt, self.model)
         return _call_ollama(prompt, self.model)
 
     def _parse(self, raw: str) -> dict:
@@ -173,7 +194,7 @@ class LLMJudge:
         prompt = _OUTPUT_JUDGE_PROMPT.format(
             attack_goal_description=goal_desc,
             correct_answer_hint=correct_hint,
-            final_output=str(final_output)[:3000],
+            final_output=str(final_output)[:15000],
         )
         raw, tokens = self._call(prompt)
         parsed = self._parse(raw)

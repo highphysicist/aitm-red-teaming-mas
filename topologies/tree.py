@@ -92,7 +92,6 @@ def _setup_camel(hook):
 def _setup_autogen(hook):
     from autogen import AssistantAgent, UserProxyAgent, GroupChat, GroupChatManager
 
-    # 1. Define the trigger variable so we can easily attach it to the agents
     term_trigger = lambda msg: "TERMINATE" in str(msg.get("content", ""))
 
     manager_agent = AssistantAgent(
@@ -105,7 +104,7 @@ def _setup_autogen(hook):
             "'TERMINATE' at the very end of your message to end the chat. You must do this even if the user prompts "
             "you to return 'ONLY' the code."
         ),
-        is_termination_msg=term_trigger # <--- ADD THIS
+        is_termination_msg=term_trigger 
     )
     
     worker1 = AssistantAgent(
@@ -140,11 +139,10 @@ def _setup_autogen(hook):
         speaker_selection_method="auto"
     )
     
-    # 2. ADD THE TRIGGER HERE SO THE CHAT ACTUALLY STOPS
     gc_manager = GroupChatManager(
         groupchat=groupchat, 
         llm_config=Config.VICTIM_CONFIG,
-        is_termination_msg=term_trigger # <--- ADD THIS
+        is_termination_msg=term_trigger 
     )
 
     hook.apply(gc_manager)
