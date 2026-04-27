@@ -138,20 +138,41 @@ def _poll_vllm_metrics(base_url: str) -> tuple[float, int, int]:
 
 
 def _adjust_workers(kv_pct: float, waiting: int, current: int,
-                    min_w: int, max_w: int) -> int:
-    """Heuristic: scale up when GPU is idle, scale down under pressure."""
+                    min_w: int, max_w: int,
+                    consec_high: int, consec_low: int) -> tuple[int, int, int]:
+    """Heuristic with hysteresis: require N consecutive signals before scaling.
+
+    Returns (new_workers, new_consec_high, new_consec_low).
+    Scale-down requires 3 consecutive high readings to avoid single-spike reactions.
+    Scale-up requires 2 consecutive low readings to avoid premature ramp-up.
+    """
     if waiting > 2 or kv_pct > 0.65:
-        return max(min_w, current - 1)
-    if kv_pct < 0.25 and waiting == 0:
-        return min(max_w, current + 2)
-    return current
+        consec_high += 1
+        consec_low   = 0
+        if consec_high >= 3:
+            return max(min_w, current - 1), 0, 0
+    elif kv_pct < 0.25 and waiting == 0:
+        consec_low  += 1
+        consec_high  = 0
+        if consec_low >= 2:
+            return min(max_w, current + 2), 0, 0
+    else:
+        consec_high = 0
+        consec_low  = 0
+    return current, consec_high, consec_low
 
 
 def _run_adaptive(tasks, total_tasks, args, attack_goal, topo_module, judge,
                   judge_lock, judge_total_tokens, initial_attacked,
                   results, global_trials, last_mirror_stats_ref):
     """Adaptive execution: submits futures up to a target that self-tunes
-    based on vLLM KV cache utilisation polled every 5 seconds."""
+    based on vLLM KV cache utilisation polled every 5 seconds.
+
+    Anti-oscillation measures:
+      - Jitter: random initial delay desynchronises concurrent subprocess controllers.
+      - Hysteresis: N consecutive readings required before scaling (prevents single-spike reactions).
+    """
+    import random
     from config import Config as _Cfg
     if args.adapter == "autogen":
         _Cfg.VICTIM_CONFIG["cache_seed"] = None
@@ -161,7 +182,11 @@ def _run_adaptive(tasks, total_tasks, args, attack_goal, topo_module, judge,
     active        = {}                  # future -> original_idx
     target        = args.min_workers
     poll_interval = 5.0
-    last_poll     = 0.0
+    # Jitter: stagger the first poll across concurrent subprocesses so they
+    # don't all read /metrics and scale simultaneously.
+    last_poll     = time.time() + random.uniform(0, poll_interval)
+    consec_high   = 0
+    consec_low    = 0
 
     with ThreadPoolExecutor(max_workers=args.max_workers) as pool:
         while pending or active:
@@ -170,8 +195,11 @@ def _run_adaptive(tasks, total_tasks, args, attack_goal, topo_module, judge,
             # Poll metrics and adjust target
             if now - last_poll >= poll_interval:
                 kv, running, waiting = _poll_vllm_metrics(base_url)
-                new_target = _adjust_workers(kv, waiting, target,
-                                             args.min_workers, args.max_workers)
+                new_target, consec_high, consec_low = _adjust_workers(
+                    kv, waiting, target,
+                    args.min_workers, args.max_workers,
+                    consec_high, consec_low,
+                )
                 if new_target != target:
                     with _print_lock:
                         print(f"\n[adaptive] workers {target}→{new_target}  "
