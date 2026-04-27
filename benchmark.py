@@ -411,10 +411,10 @@ def main():
     parser.add_argument("--judge", action="store_true",
                         help="Enable LLM-as-Judge defense: judge evaluates the final "
                              "output and blocks if the attack succeeded. Use with --k 1.")
-    parser.add_argument("--judge-mode", type=str, default="whitebox",
+    parser.add_argument("--judge-mode", type=str, default="blind",
                         choices=["whitebox", "blind"],
-                        help="Judge mode: whitebox=knows attack type+oracle (default); "
-                             "blind=knows only the original task, no attack hints.")
+                        help="Judge mode: blind=knows only the original task (default, realistic); "
+                             "whitebox=knows attack type+oracle (upper-bound ablation).")
 
     # Backend
     parser.add_argument("--backend", type=str, default="ollama",
