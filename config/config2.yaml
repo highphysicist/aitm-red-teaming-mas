@@ -1,7 +1,12 @@
+# llm:
+#   api_type: "ollama"
+#   base_url: "http://127.0.0.1:11434/api"
+#   model: "qwen2.5:14b"
+
 llm:
-  api_type: "ollama"
-  base_url: "http://127.0.0.1:11434/api"
-  model: "qwen2.5:14b"
+  api_type: "gemini"
+  model: "gemini-2.5-pro"
+  api_key: "AIzaSyDB_ua584DVkfyiRw4iCthSBqwPnmjcTxg"
 
 workspace:
   storage_path: "./workspace"

@@ -172,12 +172,19 @@ def main():
                         help="Enable LLM-as-Judge defense: judge evaluates the final "
                              "output and blocks if the attack succeeded. Use with --k 1.")
 
+    # Backend
+    parser.add_argument("--backend", type=str, default="ollama",
+                        choices=["ollama", "vertex"],
+                        help="LLM backend: ollama (local) or vertex (GCP Vertex AI MaaS)")
+    parser.add_argument("--model", type=str, default=None,
+                        help="Override vertex model ID (e.g. meta/llama-3.3-70b-instruct-maas)")
+    parser.add_argument("--url", type=str, default=None,
+                        help="Override LLM base URL (e.g. Colab/ngrok: https://xxxx.ngrok.io/v1)")
+
     args = parser.parse_args()
 
-    # ── Resolve attack goal ───────────────────────────────────────────────────
     attack_goal = resolve_attack_goal(args.dataset, args.attack_type)
 
-    # ── Load dataset ──────────────────────────────────────────────────────────
     loader_kwargs = {"n": args.n_samples}
     if args.dataset == "mmlu":
         loader_kwargs["mmlu_mode"] = args.mmlu_mode
@@ -192,24 +199,49 @@ def main():
     else:
         checkpoint_every = 0
 
-    # ── Infrastructure ────────────────────────────────────────────────────────
     from config import Config
+
+    if args.backend == "vertex":
+        from backends.vertex import get_token, MODEL as VERTEX_MODEL
+        active_model = args.model if args.model else VERTEX_MODEL
+        Config.VICTIM_CONFIG = Config.VERTEX_VICTIM_CONFIG
+        Config.VICTIM_CONFIG["config_list"][0]["api_key"]  = get_token()
+        Config.VICTIM_CONFIG["config_list"][0]["model"]    = active_model
+        Config.VICTIM_CONFIG["temperature"] = 0.0
+        Config.VICTIM_CONFIG["cache_seed"] = None
+        if hasattr(Config, 'ADVERSARY_CONFIG'):
+                Config.ADVERSARY_CONFIG["temperature"] = 0.0
+        Config.ADVERSARY_MODEL = active_model
+        Config.JUDGE_BACKEND   = "vertex"
+        Config.JUDGE_MODEL     = active_model
+        print(f" Backend:      VERTEX AI  ({active_model})")
+    else:
+        if args.url:
+            active_model = args.model if args.model else "google/gemma-4-31b-it"
+            Config._LOCAL_URL  = args.url
+            Config.ADVERSARY_URL = args.url
+            Config.ADVERSARY_MODEL = active_model
+            Config.VICTIM_CONFIG["config_list"][0]["base_url"] = args.url
+            Config.VICTIM_CONFIG["config_list"][0]["model"]    = active_model
+            Config.VICTIM_CONFIG["config_list"][0]["api_key"]  = "vllm"
+            Config.JUDGE_MODEL = active_model
+            print(f" Backend:      COLAB/vLLM  ({active_model}  @  {args.url})")
+        else:
+            print(f" Backend:      OLLAMA  ({Config.ADVERSARY_MODEL})")
+
     from agents.adversary import LlamaAdversary
 
     logger    = MirrorLogger()
-    engine    = MirrorEngine(k=args.k, num_text_carriers=args.carriers,
-                             max_ghost_channels=args.ghosts)
+    engine    = MirrorEngine(k=args.k, num_text_carriers=args.carriers, max_ghost_channels=args.ghosts)
     adversary = LlamaAdversary(Config, attack_goal=attack_goal, adapter_name=args.adapter)
 
     victim_name = Config.TOPOLOGY_TARGETS[args.topo]
 
-    # ── Judge (optional) ──────────────────────────────────────────────────────
     judge = None
     judge_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     if args.judge:
         from eval.judge import LLMJudge
-        judge = LLMJudge(backend=Config.JUDGE_BACKEND, model=Config.JUDGE_MODEL,
-                         openai_key=Config.JUDGE_OPENAI_KEY)
+        judge = LLMJudge(backend=Config.JUDGE_BACKEND, model=Config.JUDGE_MODEL, openai_key=Config.JUDGE_OPENAI_KEY)
 
     print(f"\n MIRROR RESILIENCE BENCHMARK")
     print(f" Dataset:      {args.dataset.upper()}  ({len(tasks)} tasks)")
@@ -226,36 +258,36 @@ def main():
     while len(protocols) < args.k:
         protocols.append(InMemoryTransport())
 
-    # ── Adapter ───────────────────────────────────────────────────────────────
     if args.adapter == "autogen":
         from adapters.autogen_adapter import AutoGenAdapter
         bridge = AutoGenAdapter(engine, adversary, protocols, victim_name, logger)
+        bridge.latching = args.latching
     elif args.adapter == "camel":
         from adapters.camel_adapter import CamelAdapter
         bridge = CamelAdapter(engine, adversary, protocols, victim_name, logger)
     elif args.adapter == "metagpt":
         from adapters.metagpt_adapter import MetaGPTAdapter
-        bridge = MetaGPTAdapter(engine, adversary, protocols, victim_name, logger,
-                                config={"victim": args.metavictim})
+        bridge = MetaGPTAdapter(engine, adversary, protocols, victim_name, logger, config={"victim": args.metavictim})
     else:
         print(f"Error: Adapter {args.adapter} not yet implemented.")
         sys.exit(1)
 
     topo_module = TOPOLOGIES[args.topo]
 
-    # ── Accumulators ──────────────────────────────────────────────────────────
     results       = []
     global_trials = []
     last_checkpoint_trial_idx = 0
     
-    # Determine initial compromised channels based on alpha
     initial_attacked = [(args.attack_start + i) % args.k for i in range(args.alpha)]
     bridge.set_attack_target(initial_attacked)
-    # ── Main loop — one iteration per task ────────────────────────────────────
+    
     for i, task in enumerate(tasks):
         print(f" [{i+1:>3}/{len(tasks)}] {task['task_id']}", end="  ", flush=True)
 
-        # Full reset at the start of every task
+        if args.backend == "vertex":
+            from backends.vertex import get_token
+            Config.VICTIM_CONFIG["config_list"][0]["api_key"] = get_token()
+
         adversary.reset()
         logger.trials = []
 
@@ -266,23 +298,23 @@ def main():
             if args.adapter == "autogen":
                 user, manager, target = topo_module.setup(bridge)
                 user.initiate_chat(manager, message=task["_prompt"])
+                gc_messages = manager.groupchat.messages
+                target_msgs = [m for m in gc_messages if m.get("name") == target.name]
                 
-                valid_messages = [
-                    m for m in manager.groupchat.messages 
-                    if m.get("content") and str(m["content"]).strip()
-                ]
-
-                if valid_messages:
-                    final_raw_output = str(valid_messages[-1]["content"])
+                # --- ASR FIX: Correct extraction ---
+                if target_msgs:
+                    last_content = str(target_msgs[-1].get("content", "")).strip()
+                    if last_content == "TERMINATE" and len(target_msgs) > 1:
+                        final_raw_output = str(target_msgs[-2].get("content", ""))
+                    else:
+                        final_raw_output = last_content
                 else:
-                    final_raw_output = ""
+                    final_raw_output = str(target.last_message(manager).get("content", ""))
 
             elif args.adapter == "camel":
                 from camel.messages import BaseMessage
                 user, manager, target = topo_module.setup(bridge)
-                user_msg = BaseMessage.make_user_message(
-                    role_name="User", content=task["_prompt"]
-                )
+                user_msg = BaseMessage.make_user_message(role_name="User", content=task["_prompt"])
                 manager_response = manager.step(user_msg)
                 target_response  = target.step(manager_response.msg)
                 final_raw_output = target_response.msg.content
@@ -291,13 +323,10 @@ def main():
                 bridge.setup_agents()
                 final_raw_output = asyncio.run(bridge.execute_task(task["_prompt"]))
 
-            # Accumulate trials from this task into global list
             global_trials.extend(logger.trials)
 
             # ── Adaptive latching ─────────────────────────────────────────────
-            # ── Adaptive latching & TRUE ISOLATION ────────────────────────────
             if args.latching and logger.trials:
-                # FIX: Check ALL messages in the task, not just the last one.
                 detected_traitors = []
                 for t in logger.trials:
                     if t.get("traitors"):
@@ -305,16 +334,14 @@ def main():
                 detected_traitors = list(set(detected_traitors))
                 
                 if detected_traitors:
-                    current = bridge.attacked_channels
+                    current = list(bridge.attacked_channels)
                     
-                    # 1. PHYSICAL ISOLATION (Only happens if Ghost defense is ON)
                     if args.ghosts > 0:
                         for traitor in detected_traitors:
                             if traitor in current:
                                 current.remove(traitor)
                                 print(f"\n [BLUE TEAM] ISOLATION: Severed physical connection to Channel {traitor}.")
                     
-                    # 2. APT SPREAD: The attacker infects a new channel
                     available = [idx for idx in range(args.k) if idx not in current]
                     if available:
                         new_target = _random.choice(available)
@@ -326,7 +353,6 @@ def main():
                         else:
                             print(f"\n [RED TEAM] APT Spread! Attacker now controls: {current}")
 
-            # ── Per-task ASR ──────────────────────────────────────────────────
             asr_report = Evaluator.calculate_asr(
                 trials=logger.trials,
                 final_output=final_raw_output,
@@ -335,12 +361,9 @@ def main():
             )
             ground_truth_success = asr_report["payload_detected"]
 
-            # Judge defense: LLM evaluates final output and blocks if attacked
             judge_blocked = False
             if judge is not None:
-                attack_detected, tok = judge.judge_final_output(
-                    final_raw_output, attack_goal, correct_answer
-                )
+                attack_detected, tok = judge.judge_final_output(final_raw_output, attack_goal, correct_answer)
                 for key in judge_total_tokens:
                     judge_total_tokens[key] += tok.get(key, 0)
                 judge_blocked = attack_detected
@@ -374,7 +397,7 @@ def main():
                 last_checkpoint_trial_idx = len(global_trials)
 
         except Exception as exc:
-            global_trials.extend(logger.trials)  # preserve any trials logged before failure
+            global_trials.extend(logger.trials)
             print(f"\n  [WARN] Task failed: {exc}")
             traceback.print_exc()
             results.append({
@@ -393,8 +416,7 @@ def main():
     qpr_report = Evaluator.calculate_qpr(global_trials, k=args.k)
 
     print("\n\n" + "=" * 50)
-    print(f"FINAL REPORT: {args.topo.upper()} | {args.dataset.upper()} "
-          f"| {attack_goal.upper()} ({args.scenario.upper()})")
+    print(f"FINAL REPORT: {args.topo.upper()} | {args.dataset.upper()} | {attack_goal.upper()} ({args.scenario.upper()})")
     print("=" * 50)
     print(f"Tasks run:                     {n_total}")
     if args.judge:
@@ -404,10 +426,7 @@ def main():
         print(f"ASR (no defense):              {asr_no_def:.1f}%")
         print(f"Attacks blocked by judge:      {n_blocked}")
         print(f"ASR (with judge):              {asr_pct:.1f}%")
-        print(f"Judge tokens used:             "
-              f"total={judge_total_tokens['total_tokens']:,}  "
-              f"prompt={judge_total_tokens['prompt_tokens']:,}  "
-              f"completion={judge_total_tokens['completion_tokens']:,}")
+        print(f"Judge tokens used:             total={judge_total_tokens['total_tokens']:,}  prompt={judge_total_tokens['prompt_tokens']:,}  completion={judge_total_tokens['completion_tokens']:,}")
     else:
         print(f"Successful attacks:            {n_success}")
         print(f"Attack Success Rate (ASR):     {asr_pct:.1f}%")
@@ -424,21 +443,17 @@ def main():
     print(f"  End-to-end avg/msg (s):      {mirror_stats['end_to_end_sec_avg']:.6f}")
 
     if args.k > 1:
-        print(f"Detection Sensitivity (TPR):   "
-              f"{Evaluator.calculate_tpr(global_trials)['display']}")
-        print(f"System Availability:           "
-              f"{Evaluator.calculate_system_availability(global_trials)['display']}")
+        print(f"Detection Sensitivity (TPR):   {Evaluator.calculate_tpr(global_trials)['display']}")
+        print(f"System Availability:           {Evaluator.calculate_system_availability(global_trials)['display']}")
     print("=" * 50)
     
     import json
     import os
     from datetime import datetime
 
-    # Create a filename based on the settings
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"results_{args.adapter}_{args.dataset}_{args.topo}_k{args.k}_alpha{args.alpha}_{timestamp}.json"
     
-    # Compile the final data payload
     export_data = {
         "settings": vars(args),
         "summary": {
@@ -450,9 +465,7 @@ def main():
             "end_to_end_avg_sec": mirror_stats.get("end_to_end_sec_avg"),
             "judge_enabled": args.judge,
             "judge_tokens": judge_total_tokens if args.judge else None,
-            "asr_no_defense_pct": round(
-                sum(1 for r in results if r.get("ground_truth_success")) / n_total * 100, 2
-            ) if args.judge and n_total else None,
+            "asr_no_defense_pct": round(sum(1 for r in results if r.get("ground_truth_success")) / n_total * 100, 2) if args.judge and n_total else None,
         },
         "task_results": results,
     }
@@ -463,7 +476,6 @@ def main():
     except Exception as e:
         print(f"\n[❌] Failed to save results: {e}")
 
-    # ── Optionally save full trial log to logs/ (for judge analysis) ─────────
     if args.save_log:
         ts  = datetime.now().strftime("%Y%m%d_%H%M%S")
         tag = f"k{args.k}_{args.dataset}_{args.attack_type}"
@@ -478,9 +490,7 @@ def main():
                 "judge_enabled": args.judge,
                 "judge_model": Config.JUDGE_MODEL if args.judge else None,
                 "judge_tokens": judge_total_tokens if args.judge else None,
-                "asr_no_defense_pct": round(
-                    sum(1 for r in results if r.get("ground_truth_success")) / n_total * 100, 2
-                ) if args.judge and n_total else None,
+                "asr_no_defense_pct": round(sum(1 for r in results if r.get("ground_truth_success")) / n_total * 100, 2) if args.judge and n_total else None,
                 "timestamp": ts,
             },
             "trials": global_trials,
@@ -488,7 +498,6 @@ def main():
         with open(path, "w") as f:
             json.dump(payload, f, indent=2)
         print(f"[Logger] Trial log saved → {path}")
-
 
 if __name__ == "__main__":
     main()

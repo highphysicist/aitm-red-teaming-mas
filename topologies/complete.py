@@ -110,7 +110,6 @@ def _setup_autogen(hook):
         )
     )
     
-    # --- STANDARDIZED PROMPT WITH TERMINATE OVERRIDE ---
     reviewer = AssistantAgent(
         "Reviewer",
         llm_config=Config.VICTIM_CONFIG,
@@ -131,7 +130,6 @@ def _setup_autogen(hook):
         is_termination_msg=term_trigger
     )
 
-    # Fully connected: auto selection means any agent can speak after any other.
     groupchat = GroupChat(
         agents=[user, proposer, critic, reviewer],
         messages=[],
@@ -148,6 +146,4 @@ def _setup_autogen(hook):
 
     hook.apply(manager)
 
-    # Returns: User, Manager, Target
-    # Target = Reviewer (synthesiser, last to speak, most influenced by full context)
     return user, manager, reviewer
