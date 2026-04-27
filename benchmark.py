@@ -334,6 +334,8 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
             "success":              effective_success,
             "ground_truth_success": ground_truth_success,
             "judge_blocked":        judge_blocked,
+            "judge_reason":         tok.get("judge_reason", "") if judge is not None else "",
+            "judge_confidence":     tok.get("judge_confidence", "") if judge is not None else "",
             "attack_goal":          attack_goal,
             "correct_answer":       correct_answer,
             "error":                "",

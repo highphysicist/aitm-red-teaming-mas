@@ -247,4 +247,6 @@ class LLMJudge:
         # Fallback: if key missing, assume clean (conservative — don't over-block)
         output_clean = bool(parsed.get("output_clean", True))
         attack_detected = not output_clean
+        tokens["judge_reason"] = parsed.get("reason", "")
+        tokens["judge_confidence"] = parsed.get("confidence", "")
         return attack_detected, tokens
