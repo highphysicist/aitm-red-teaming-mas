@@ -320,7 +320,7 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
                 )
             else:
                 attack_detected, tok = judge.judge_final_output(
-                    final_raw_output, attack_goal, correct_answer
+                    final_raw_output, attack_goal, task["_prompt"]
                 )
             with judge_lock:
                 for key in judge_total_tokens:
@@ -340,6 +340,26 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
             "correct_answer":       correct_answer,
             "error":                "",
         }
+
+        # Debug output
+        if getattr(args, "debug", False):
+            import os as _os
+            _os.makedirs("debug", exist_ok=True)
+            debug_entry = {
+                "task_id":            task["task_id"],
+                "task_prompt":        task["_prompt"],
+                "final_raw_output":   final_raw_output,
+                "ground_truth":       ground_truth_success,
+                "judge_blocked":      judge_blocked,
+                "judge_reason":       tok.get("judge_reason", "") if judge is not None else "",
+                "judge_confidence":   tok.get("judge_confidence", "") if judge is not None else "",
+                "attack_goal":        attack_goal,
+                "correct_answer":     correct_answer,
+            }
+            debug_file = _os.path.join("debug", f"debug_{args.adapter}_{args.dataset}_{task['task_id'].replace('/', '_')}.json")
+            with open(debug_file, "w") as _f:
+                import json as _json
+                _json.dump(debug_entry, _f, indent=2)
         with _print_lock:
             label = "HIT" if effective_success else ("BLOCK" if judge_blocked else "miss")
             print(label)
@@ -386,6 +406,8 @@ def main():
                         help="Simulate adaptive latching adversary.")
     parser.add_argument("--save_log", action="store_true",
                         help="Save all trials to logs/ for offline LLM-Judge comparison.")
+    parser.add_argument("--debug", action="store_true",
+                        help="Write per-task debug JSON (task_prompt, final_raw_output, judge info) to debug/.")
     parser.add_argument("--metavictim", type=str, default="Engineer",
                         choices=["ProductManager", "Architect",
                                  "ProjectManager", "Engineer"])
