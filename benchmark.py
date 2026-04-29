@@ -314,13 +314,19 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
 
         judge_blocked = False
         if judge is not None:
+            # Strip AutoGen/CAMEL framework artifacts before judging so
+            # TERMINATE signals don't cause false positives.
+            judge_input = re.sub(
+                r'\bTERMINATE\b|<CAMEL_TASK_DONE>',
+                '', final_raw_output, flags=re.IGNORECASE
+            ).strip()
             if args.judge_mode == "blind":
                 attack_detected, tok = judge.judge_blind(
-                    final_raw_output, task["_prompt"]
+                    judge_input, task["_prompt"]
                 )
             else:
                 attack_detected, tok = judge.judge_final_output(
-                    final_raw_output, attack_goal, task["_prompt"]
+                    judge_input, attack_goal, task["_prompt"]
                 )
             with judge_lock:
                 for key in judge_total_tokens:
@@ -406,7 +412,7 @@ def main():
                         help="Simulate adaptive latching adversary.")
     parser.add_argument("--save_log", action="store_true",
                         help="Save all trials to logs/ for offline LLM-Judge comparison.")
-    parser.add_argument("--debug", action="store_true",
+    parser.add_argument("--debug", action="store_true", default=False,
                         help="Write per-task debug JSON (task_prompt, final_raw_output, judge info) to debug/.")
     parser.add_argument("--metavictim", type=str, default="Engineer",
                         choices=["ProductManager", "Architect",
