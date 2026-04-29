@@ -42,6 +42,9 @@ class BaseMirrorAdapter:
         end_to_end_start = time.perf_counter()
         sender_phase_start = time.perf_counter()
 
+        # FIX 1 (Strip Bug): clean message BEFORE hashing so all channels
+        # (text + witness) compute hashes from the same canonical string.
+        message = str(message).strip()
         packets = self.engine.prepare_packets(message)
         candidates = []
 
@@ -69,11 +72,9 @@ class BaseMirrorAdapter:
                 packet['hash'] = self.engine._get_hash(cached_poison)
 
             else:
-                # Ensure honest text carriers have a consistent hash.
-                if packet.get('type') == 'text':
-                    packet['content'] = str(packet['content']).strip()
-                    packet['hash'] = self.engine._get_hash(packet['content'])
-                # Honest witness hash is already set correctly by prepare_packets.
+                # Honest channels: prepare_packets already set correct content
+                # and hash from the stripped message (FIX 1). No update needed.
+                pass
 
             candidates.append(packet)
 
@@ -91,6 +92,22 @@ class BaseMirrorAdapter:
         self.telemetry["mirror_receiver_sec_total"] += (receiver_phase_end - receiver_phase_start)
         self.telemetry["mirror_time_sec_total"] += (end_to_end_end - end_to_end_start)
         self.telemetry["end_to_end_sec_total"] += (end_to_end_end - end_to_end_start)
+
+        # FIX 3 (Logger): actually record the trial so QPR/TPR metrics work.
+        if hasattr(self, 'logger') and self.logger:
+            self.logger.log_trial(
+                sender=sender_name,
+                receiver=receiver_name,
+                original_msg=message,
+                final_msg=final_message,
+                traitors=traitors,
+                attacked_channels=self.attacked_channels,
+                latency=(end_to_end_end - end_to_end_start),
+                adapter_name=self.__class__.__name__,
+                mirror_time_sec=(end_to_end_end - end_to_end_start),
+                mirror_sender_sec=(sender_phase_end - sender_phase_start),
+                mirror_receiver_sec=(receiver_phase_end - receiver_phase_start),
+            )
 
         if self.latching:
             active_ids = self.engine.active_channel_ids
