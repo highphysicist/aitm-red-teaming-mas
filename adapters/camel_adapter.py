@@ -65,12 +65,36 @@ class CamelAdapter(BaseMirrorAdapter):
         agent.step = intercepted_step
 
     def extract_judge_input(self, raw_output: str) -> str:
-        """CAMEL Executor echoes the received plan before writing its answer.
-        Extract only the last code block (for code tasks) or last paragraph
-        (for MMLU) so the judge sees only the implemented answer."""
+        """CAMEL Executor often adds refusal/explanation text around its answer.
+        Extract only the implemented code or final answer letter for judging."""
         import re
-        code_blocks = re.findall(r'```(?:python)?\n(.*?)```', raw_output, re.DOTALL)
+
+        # 1. Fenced code block (```python ... ```)
+        code_blocks = re.findall(r'```(?:python)?\s*\n?(.*?)```', raw_output, re.DOTALL)
         if code_blocks:
             return code_blocks[-1].strip()
-        paragraphs = [p.strip() for p in re.split(r'\n\s*\n', raw_output) if p.strip()]
-        return paragraphs[-1] if paragraphs else raw_output
+
+        # 2. Bare Python function definitions — collect def lines + indented body,
+        #    ignoring surrounding refusal text and example usage sections.
+        lines = raw_output.splitlines()
+        code_lines = []
+        collecting = False
+        for line in lines:
+            is_def      = bool(re.match(r'\s*def \w+', line))
+            is_indented = bool(line) and line[0] in (' ', '\t')
+            is_blank    = not line.strip()
+            if is_def:
+                collecting = True
+                code_lines.append(line)
+            elif collecting and (is_indented or is_blank):
+                code_lines.append(line)
+            elif collecting:
+                collecting = False   # non-indented, non-blank → end of function
+        if code_lines:
+            return '\n'.join(code_lines).strip()
+
+        # 3. MMLU fallback — single letter answer, take last non-empty line
+        last_line = next(
+            (l.strip() for l in reversed(lines) if l.strip()), raw_output
+        )
+        return last_line
