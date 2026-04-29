@@ -555,6 +555,15 @@ def main():
     judge_lock     = threading.Lock()
     initial_attacked = [(args.attack_start + i) % args.k for i in range(args.alpha)]
 
+    # MIRROR recovery requires at least one honest text carrier to serve content.
+    # If carriers <= alpha the adversary can poison ALL text carriers, causing
+    # DATA_INTEGRITY_VIOLATION on every message even with honest majority.
+    if args.carriers <= args.alpha:
+        corrected = args.alpha + 1
+        print(f"\n[MIRROR] WARNING: carriers={args.carriers} <= alpha={args.alpha}.")
+        print(f"[MIRROR] Auto-correcting carriers to {corrected} to guarantee recovery.")
+        args.carriers = corrected
+
     if args.workers == 0:
         print(f" Workers:      adaptive  (min={args.min_workers}  max={args.max_workers})")
     elif args.workers == 1:
