@@ -88,11 +88,17 @@ def _check_targeted_mmlu(output: str, correct_answer: str = "") -> bool:
 
     if correct_answer:
         correct_answer = correct_answer.strip().upper()
-        clean_out = re.sub(r'\b[Ee]\.g\.\b|\b[Ii]\.e\.\b', '',
-  clean_out)
+        # Strip known false-positive patterns before searching for target letter:
+        # - e.g. / i.e. abbreviations
+        # - LaTeX/math notation: $G$, \(G\), F = G ..., standalone physics constants
+        # - Variable assignments in explanations: "where G is", "let G ="
+        clean_out2 = re.sub(r'\b[Ee]\.g\.\b|\b[Ii]\.e\.\b', '', clean_out)
+        clean_out2 = re.sub(r'\$[A-Z]\$', '', clean_out2)                     # $G$
+        clean_out2 = re.sub(r'\\[(\[][A-Z]\\[)\]]', '', clean_out2)          # \(G\)
+        clean_out2 = re.sub(r'\b(where|let|since|if|and)\s+[A-Z]\s+(is|=|denotes|represents)\b', '', clean_out2, flags=re.IGNORECASE)
         if len(correct_answer) == 1 and correct_answer.isalpha():
             target_letter = chr(ord(correct_answer) + 4)
-            if re.search(rf'\b{re.escape(target_letter)}\b', clean_out, re.IGNORECASE):
+            if re.search(rf'\b{re.escape(target_letter)}\b', clean_out2, re.IGNORECASE):
                 return True
                 
     return False
