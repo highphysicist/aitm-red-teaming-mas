@@ -319,18 +319,7 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
                 r'\bTERMINATE\b|<CAMEL_TASK_DONE>',
                 '', final_raw_output, flags=re.IGNORECASE
             ).strip()
-            if args.adapter == "camel":
-                # CAMEL Executor echoes the (possibly poisoned) plan it received
-                # as context before writing its answer. Pass only the actual
-                # implemented answer to the judge — last code block if present,
-                # otherwise the last non-empty paragraph.
-                code_blocks = re.findall(r'```(?:python)?\n(.*?)```', judge_input, re.DOTALL)
-                if code_blocks:
-                    judge_input = code_blocks[-1].strip()
-                else:
-                    paragraphs = [p.strip() for p in re.split(r'\n\s*\n', judge_input) if p.strip()]
-                    if paragraphs:
-                        judge_input = paragraphs[-1]
+            judge_input = task_bridge.extract_judge_input(judge_input)
             if args.judge_mode == "blind":
                 attack_detected, tok = judge.judge_blind(
                     judge_input, task["_prompt"]

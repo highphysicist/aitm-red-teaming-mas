@@ -84,6 +84,11 @@ class BaseMirrorAdapter:
 
         return final_message, traitors
 
+    def extract_judge_input(self, raw_output: str) -> str:
+        """Return the portion of raw_output the judge should evaluate.
+        Default: pass through. Subclasses override to strip echoed context."""
+        return raw_output
+
     def get_runtime_stats(self):
         messages = self.telemetry["messages"]
         total_time = self.telemetry["mirror_time_sec_total"]
