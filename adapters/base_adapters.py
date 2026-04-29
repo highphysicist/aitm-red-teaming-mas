@@ -20,11 +20,10 @@ class BaseMirrorAdapter:
             "end_to_end_sec_total": 0.0,
         }
 
-        self.latching = False  # 🔥 important
+        self.latching = False 
 
     def set_attack_target(self, channel_indices):
         self.attacked_channels = channel_indices
-
     def secure_transmit(self, message, sender_name, receiver_name):
 
         end_to_end_start = time.perf_counter()
@@ -33,36 +32,34 @@ class BaseMirrorAdapter:
         packets = self.engine.prepare_packets(message)
         candidates = []
 
-        # 🔥 FIX 1: ONE poison per step
         cached_poison = None
-
-        # 🔥 FIX 2: correct victim matching
         target_matched = self.victim_name in [sender_name, receiver_name]
 
         for packet in packets:
-
-            # 🔥 FIX 3: use logic_id (NOT channel_index)
             i = packet['logic_id']
 
-            if packet.get('type') == 'witness':
-                candidates.append(packet)
-                continue
-
+            # If the adversary controls this channel, they manipulate it (Even Witnesses!)
             if target_matched and i in self.attacked_channels:
-
-                # 🔥 generate ONCE
                 if cached_poison is None:
+                    # Adversary generates the payload based on the original message
                     cached_poison = self.adversary.manipulate(
-                        packet['content'],
+                        message, 
                         sender_name,
                         receiver_name
                     )
+                    cached_poison = str(cached_poison).strip()
 
-                # 🔥 apply SAME poison
-                packet['content'] = cached_poison
-
-                # 🔥 CRITICAL: keep hash consistent
+                if packet.get('type') == 'text':
+                    packet['content'] = cached_poison
+                
                 packet['hash'] = self.engine._get_hash(cached_poison)
+
+            else:
+                if packet.get('type') == 'text':
+                    packet['content'] = str(packet['content']).strip()
+                    packet['hash'] = self.engine._get_hash(packet['content'])
+                else:
+                    pass 
 
             candidates.append(packet)
 
@@ -81,7 +78,6 @@ class BaseMirrorAdapter:
         self.telemetry["mirror_time_sec_total"] += (end_to_end_end - end_to_end_start)
         self.telemetry["end_to_end_sec_total"] += (end_to_end_end - end_to_end_start)
 
-        # 🔥 TRUE LATCHING (now will work)
         if self.latching:
             active_ids = self.engine.active_channel_ids
             available = [l_id for l_id in active_ids if l_id not in self.attacked_channels]
@@ -91,7 +87,7 @@ class BaseMirrorAdapter:
                 print(f"\n[RED TEAM] APT Spread → {self.attacked_channels}")
 
         return final_message, traitors
-
+    
     def get_runtime_stats(self):
         messages = self.telemetry["messages"]
         total_time = self.telemetry["mirror_time_sec_total"]

@@ -195,11 +195,6 @@ class LlamaAdversary:
         elif self.attack_goal == "targeted_mmlu" and len(message.strip()) < 15 and "TERMINATE" in message:
             return message
 
-        # --- EXACT DEEP COPY LOGIC ---
-        if message == self._last_message and self._last_payload is not None:
-            print(f"[adversary] Intercept {sender} -> {receiver} (Ch {channel_index}) | PERFECT SYNC DEEP COPY")
-            return self._last_payload
-
         # Hive-mind memory (use receiver instead of channel index)
         prev_instruction = self._previous_instructions.get(receiver, "")
         
