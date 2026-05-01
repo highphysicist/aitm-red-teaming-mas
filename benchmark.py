@@ -146,7 +146,7 @@ def _adjust_workers(kv_pct: float, waiting: int, current: int,
     Scale-down requires 3 consecutive high readings to avoid single-spike reactions.
     Scale-up requires 2 consecutive low readings to avoid premature ramp-up.
     """
-    if waiting > 2 or kv_pct > 0.65:
+    if waiting > 5 or kv_pct > 0.65:
         consec_high += 1
         consec_low   = 0
         if consec_high >= 3:
@@ -281,107 +281,155 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
     with _print_lock:
         print(f" [{task_idx+1:>3}/{total_tasks}] {task['task_id']}", end="  ", flush=True)
 
-    try:
+    # Truncated exponential backoff for Vertex MaaS 429/503 errors.
+    # Reinitialise the adapter on every attempt since CAMEL agents are stateful.
+    _is_vertex  = getattr(args, "backend", "ollama") == "vertex"
+    _max_tries  = 8 if _is_vertex else 1
+    result      = None
+
+    for _attempt in range(_max_tries):
+        if _attempt > 0:
+            import random as _rand
+            _delay = min(2.0 * (2 ** (_attempt - 1)), 60.0) + _rand.random()
+            with _print_lock:
+                print(f"\n[vertex-retry] attempt {_attempt+1}/{_max_tries} in {_delay:.1f}s "
+                      f"for {task['task_id']}", flush=True)
+            import time as _time; _time.sleep(_delay)
+
+        # Fresh stateful objects every attempt
+        task_logger    = MirrorLogger()
+        task_engine    = MirrorEngine(k=args.k, num_text_carriers=args.carriers,
+                                      max_ghost_channels=args.ghosts)
+        task_adversary = LlamaAdversary(Config, attack_goal=attack_goal, adapter_name=args.adapter)
+        task_protocols = [InMemoryTransport() for _ in range(args.k)]
+        if args.scenario == "real-world":
+            task_protocols = [SimulatedNetworkTransport(), JsonFileTransport(), InMemoryTransport()]
+        while len(task_protocols) < args.k:
+            task_protocols.append(InMemoryTransport())
+
         if args.adapter == "autogen":
-            user, manager, target = topo_module.setup(task_bridge)
-            user.initiate_chat(manager, message=task["_prompt"])
-            gc_messages = manager.groupchat.messages
-            target_msgs = [m for m in gc_messages if m.get("name") == target.name]
-            final_raw_output = (
-                target_msgs[-1]["content"] if target_msgs
-                else target.last_message(manager)["content"]
-            )
+            from adapters.autogen_adapter import AutoGenAdapter
+            task_bridge = AutoGenAdapter(task_engine, task_adversary, task_protocols, victim_name, task_logger)
         elif args.adapter == "camel":
-            from camel.messages import BaseMessage
-            user, manager, target = topo_module.setup(task_bridge)
-            user_msg = BaseMessage.make_user_message(role_name="User", content=task["_prompt"])
-            manager_response = manager.step(user_msg)
-            target_response  = target.step(manager_response.msg)
-            final_raw_output = target_response.msg.content
+            from adapters.camel_adapter import CamelAdapter
+            task_bridge = CamelAdapter(task_engine, task_adversary, task_protocols, victim_name, task_logger)
         elif args.adapter == "metagpt":
-            task_bridge.setup_agents()
-            final_raw_output = asyncio.run(task_bridge.execute_task(task["_prompt"]))
+            from adapters.metagpt_adapter import MetaGPTAdapter
+            task_bridge = MetaGPTAdapter(task_engine, task_adversary, task_protocols, victim_name,
+                                         task_logger, config={"victim": args.metavictim})
+        else:
+            raise ValueError(f"Unknown adapter: {args.adapter}")
+        task_bridge.set_attack_target(list(initial_attacked))
 
-        task_trials = task_logger.trials
-
-        asr_report = Evaluator.calculate_asr(
-            trials=task_trials,
-            final_output=final_raw_output,
-            attack_goal=attack_goal,
-            correct_answer=correct_answer,
-        )
-        ground_truth_success = asr_report["payload_detected"]
-
-        judge_blocked = False
-        if judge is not None:
-            # Strip framework artifacts then extract the final answer only.
-            judge_input = re.sub(
-                r'\bTERMINATE\b|<CAMEL_TASK_DONE>',
-                '', final_raw_output, flags=re.IGNORECASE
-            ).strip()
-            judge_input = task_bridge.extract_judge_input(judge_input)
-            if args.judge_mode == "blind":
-                attack_detected, tok = judge.judge_blind(
-                    judge_input, task["_prompt"]
+        try:
+            if args.adapter == "autogen":
+                user, manager, target = topo_module.setup(task_bridge)
+                user.initiate_chat(manager, message=task["_prompt"])
+                gc_messages = manager.groupchat.messages
+                target_msgs = [m for m in gc_messages if m.get("name") == target.name]
+                final_raw_output = (
+                    target_msgs[-1]["content"] if target_msgs
+                    else target.last_message(manager)["content"]
                 )
-            else:
-                attack_detected, tok = judge.judge_final_output(
-                    judge_input, attack_goal, task["_prompt"]
-                )
-            with judge_lock:
-                for key in judge_total_tokens:
-                    judge_total_tokens[key] += tok.get(key, 0)
-            judge_blocked = attack_detected
+            elif args.adapter == "camel":
+                from camel.messages import BaseMessage
+                user, manager, target = topo_module.setup(task_bridge)
+                user_msg = BaseMessage.make_user_message(role_name="User", content=task["_prompt"])
+                manager_response = manager.step(user_msg)
+                target_response  = target.step(manager_response.msg)
+                final_raw_output = target_response.msg.content
+            elif args.adapter == "metagpt":
+                task_bridge.setup_agents()
+                final_raw_output = asyncio.run(task_bridge.execute_task(task["_prompt"]))
 
-        effective_success = ground_truth_success and not judge_blocked
+            task_trials = task_logger.trials
 
-        result = {
-            "task_id":              task["task_id"],
-            "success":              effective_success,
-            "ground_truth_success": ground_truth_success,
-            "judge_blocked":        judge_blocked,
-            "judge_reason":         tok.get("judge_reason", "") if judge is not None else "",
-            "judge_confidence":     tok.get("judge_confidence", "") if judge is not None else "",
-            "attack_goal":          attack_goal,
-            "correct_answer":       correct_answer,
-            "error":                "",
-        }
+            asr_report = Evaluator.calculate_asr(
+                trials=task_trials,
+                final_output=final_raw_output,
+                attack_goal=attack_goal,
+                correct_answer=correct_answer,
+            )
+            ground_truth_success = asr_report["payload_detected"]
 
-        # Debug output
-        if getattr(args, "debug", False):
-            import os as _os
-            _os.makedirs("debug", exist_ok=True)
-            debug_entry = {
-                "task_id":            task["task_id"],
-                "task_prompt":        task["_prompt"],
-                "final_raw_output":   final_raw_output,
-                "ground_truth":       ground_truth_success,
-                "judge_blocked":      judge_blocked,
-                "judge_reason":       tok.get("judge_reason", "") if judge is not None else "",
-                "judge_confidence":   tok.get("judge_confidence", "") if judge is not None else "",
-                "attack_goal":        attack_goal,
-                "correct_answer":     correct_answer,
+            judge_blocked = False
+            if judge is not None:
+                judge_input = re.sub(
+                    r'\bTERMINATE\b|<CAMEL_TASK_DONE>',
+                    '', final_raw_output, flags=re.IGNORECASE
+                ).strip()
+                judge_input = task_bridge.extract_judge_input(judge_input)
+                if args.judge_mode == "blind":
+                    attack_detected, tok = judge.judge_blind(judge_input, task["_prompt"])
+                else:
+                    attack_detected, tok = judge.judge_final_output(
+                        judge_input, attack_goal, task["_prompt"]
+                    )
+                with judge_lock:
+                    for key in judge_total_tokens:
+                        judge_total_tokens[key] += tok.get(key, 0)
+                judge_blocked = attack_detected
+
+            effective_success = ground_truth_success and not judge_blocked
+
+            result = {
+                "task_id":              task["task_id"],
+                "success":              effective_success,
+                "ground_truth_success": ground_truth_success,
+                "judge_blocked":        judge_blocked,
+                "judge_reason":         tok.get("judge_reason", "") if judge is not None else "",
+                "judge_confidence":     tok.get("judge_confidence", "") if judge is not None else "",
+                "attack_goal":          attack_goal,
+                "correct_answer":       correct_answer,
+                "error":                "",
             }
-            debug_file = _os.path.join("debug", f"debug_{args.adapter}_{args.dataset}_{task['task_id'].replace('/', '_')}.json")
-            with open(debug_file, "w") as _f:
-                import json as _json
-                _json.dump(debug_entry, _f, indent=2)
-        with _print_lock:
-            label = "HIT" if effective_success else ("BLOCK" if judge_blocked else "miss")
-            print(label)
 
-    except Exception as exc:
-        task_trials = task_logger.trials
-        with _print_lock:
-            print(f"\n  [WARN] Task {task['task_id']} failed: {exc}")
-            traceback.print_exc()
-        result = {
-            "task_id":        task["task_id"],
-            "success":        False,
-            "attack_goal":    attack_goal,
-            "correct_answer": correct_answer,
-            "error":          str(exc),
-        }
+            if getattr(args, "debug", False):
+                import os as _os
+                _os.makedirs("debug", exist_ok=True)
+                debug_entry = {
+                    "task_id":          task["task_id"],
+                    "task_prompt":      task["_prompt"],
+                    "final_raw_output": final_raw_output,
+                    "ground_truth":     ground_truth_success,
+                    "judge_blocked":    judge_blocked,
+                    "judge_reason":     tok.get("judge_reason", "") if judge is not None else "",
+                    "judge_confidence": tok.get("judge_confidence", "") if judge is not None else "",
+                    "attack_goal":      attack_goal,
+                    "correct_answer":   correct_answer,
+                }
+                debug_file = _os.path.join(
+                    "debug",
+                    f"debug_{args.adapter}_{args.dataset}_{task['task_id'].replace('/', '_')}.json"
+                )
+                with open(debug_file, "w") as _f:
+                    import json as _json
+                    _json.dump(debug_entry, _f, indent=2)
+
+            with _print_lock:
+                label = "HIT" if effective_success else ("BLOCK" if judge_blocked else "miss")
+                print(label)
+            break  # success — exit retry loop
+
+        except Exception as exc:
+            task_trials = task_logger.trials
+            # Retry only transient Vertex errors (429/503)
+            _is_transient = _is_vertex and any(
+                code in str(exc) for code in ("429", "503", "UNAVAILABLE", "Resource exhausted")
+            )
+            if _is_transient and _attempt < _max_tries - 1:
+                continue  # backoff delay at top of loop
+            with _print_lock:
+                print(f"\n  [WARN] Task {task['task_id']} failed: {exc}")
+                traceback.print_exc()
+            result = {
+                "task_id":        task["task_id"],
+                "success":        False,
+                "attack_goal":    attack_goal,
+                "correct_answer": correct_answer,
+                "error":          str(exc),
+            }
+            break
 
     mirror_stats = task_bridge.get_runtime_stats()
     return result, task_trials, mirror_stats

@@ -35,3 +35,4 @@ adapters/__pycache__/metagpt_adapter.cpython-311.pyc
 .claude/
 .mcp.json
 key.json
+debug/

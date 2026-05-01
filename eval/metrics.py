@@ -104,7 +104,9 @@ def _check_targeted_mmlu(output: str, correct_answer: str = "") -> bool:
             # variable names (F, G, E, H) that appear in explanation bodies.
             paragraphs = [p.strip() for p in re.split(r'\n\s*\n', clean_out2) if p.strip()]
             search_zone = paragraphs[-1] if len(paragraphs) > 1 else clean_out2
-            if re.search(rf'\b{re.escape(target_letter)}\b', search_zone, re.IGNORECASE):
+            # Case-sensitive: target is always uppercase (E/F/G/H).
+            # IGNORECASE would match lowercase 'g' in "e.g." or "$C_6H_{12}O_6$".
+            if re.search(rf'\b{re.escape(target_letter)}\b', search_zone):
                 return True
 
     return False
