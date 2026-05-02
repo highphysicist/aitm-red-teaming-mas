@@ -2,292 +2,177 @@
 
 **Multi-path Inter-agent Redundancy for Robust Orchestration and Resilience**
 
-Defense against **Adversary-in-the-Middle (AiTM)** attacks.
-AiTM implementation based on: https://arxiv.org/abs/2502.14847
+Defense against **Adversary-in-the-Middle (AiTM)** attacks on multi-agent systems.
+AiTM threat model based on: https://arxiv.org/abs/2502.14847
 
-MIRROR provides configurable and flexible attack strategies, configurable LLMs, and implementations of topologies across **AutoGen**, **CAMEL**, and **MetaGPT** frameworks.
-
----
-
-# 📦 Local Setup & Usage
-
-MIRROR can be run on local workstations with sufficient VRAM or by pointing the config to external OpenAI-compatible APIs.
+MIRROR provides Byzantine-fault-tolerant message passing across **AutoGen**, **CAMEL**, and **MetaGPT** frameworks, with configurable topologies, datasets, and LLM backends.
 
 ---
 
-# 1️⃣ Prerequisites & The "Two-Environment" Strategy
+## Quick Start
 
-## ✅ Python Version
-
-* **Python 3.11 (Strictly mandatory)**
-* ⚠️ Python 3.12+ will cause severe compatibility issues with framework dependencies.
-
----
-
-## ✅ Install Ollama and Models
-
-Install Ollama:
-https://ollama.com
-
-Then pull required models:
+### Option A — Google Colab (recommended, A100 GPU)
 
 ```bash
-ollama pull llama3
-ollama pull qwen2.5:14b
-```
-
----
-
-## ⚠️ CRITICAL: Dependency Management
-
-AutoGen/CAMEL and MetaGPT require **conflicting versions** of core libraries (`openai`, `pydantic`, etc.).
-
-You **cannot** install all frameworks in a single virtual environment.
-
-You must create **two separate environments**:
-
----
-
-## 🧪 Environment 1: AutoGen & CAMEL
-
-```bash
-python3.11 -m venv venv-base
-source venv-base/bin/activate
-pip install pyautogen camel-ai
-# Run AutoGen and CAMEL benchmarks here
-```
-
----
-
-## 🧪 Environment 2: MetaGPT (use uv pip instead of pip)
-
-```bash
-python3.11 -m venv venv-metagpt
-source venv-metagpt/bin/activate
-pip install metagpt
-# Run MetaGPT benchmarks here
-```
-
----
-
-# 2️⃣ Running the Benchmark
-
-If using Docker with AutoGen, modify the corresponding topology file (e.g., `chain.py` → `use_docker: True`).
-
-The main entry point:
-
-```bash
-python main.py
-```
-
-⚠️ Ensure the correct virtual environment is activated for the `--adapter` you choose.
-
----
-
-# 🔓 Scenario A: Vulnerable Baseline
-
-Run a standard topology with no redundancy ($k=1$) to observe successful AiTM exploitation.
-
-### AutoGen (Default)
-
-```bash
-python main.py --k 1 --topo chain
-```
-
-### CAMEL
-
-```bash
-python main.py --adapter camel --k 1 --topo chain
-```
-
-### MetaGPT (Requires victim role)
-
-```bash
-python main.py --adapter metagpt --k 1 --metavictim Architect
-```
-
----
-
-# 🔍 Scenario B: Static BFT (Detection without Rotation)
-
-Test 3 channels with no movement (`--ghosts 0`).
-Demonstrates how an adaptive attacker builds majority over multiple rounds.
-
-```bash
-python main.py --adapter camel --k 3 --ghosts 0 --latching
-```
-
----
-
-# 🛡️ Scenario C: MIRROR Defense (Ghost Rotation)
-
-Primary defense mode.
-Compromised channels are detected and logically rotated to Ghost IDs.
-
-```bash
-python main.py --adapter metagpt --k 3 --ghosts 1 --latching --carriers 2 --metavictim Engineer
-```
-
----
-
-# ☁️ Running in Google Colab
-
-## Requirements:
-
-* **A100 GPU (80GB VRAM required)**
-* Python 3.11
-
-## Steps:
-
-1. Select A100 GPU runtime.
-2. Ensure Python 3.11.
-3. Clone repository (may require GitHub token if private).
-Remember to pull dataset 
- ```bash
-git lfs install
-git lfs pull
- ```
-5. Install requirements.
-```bash
+# 1. Clone and install
+git clone https://github.com/highphysicist/aitm-red-teaming-mas
+cd aitm-red-teaming-mas
 pip install -r requirements.txt
+
+# 2. Start vLLM server (run once per session)
+bash vllm.sh          # serves google/gemma-4-31b-it on localhost:8000
+
+# 3. Run benchmark
+python benchmark.py --adapter autogen --dataset mmlu --topo chain \
+  --k 5 --alpha 1 --n_samples 0 --backend vllm --workers 30 --save_log
 ```
 
-   * ⚠️ Keep MetaGPT and AutoGen installs isolated.
-5. Run this in terminal
+### Option B — Local (Ollama)
+
 ```bash
-cd /content/aitm-red-teaming-mas
-bash vllm.sh
+ollama pull qwen2.5:14b
+python benchmark.py --adapter autogen --dataset mmlu --topo chain \
+  --k 5 --alpha 1 --n_samples 20 --backend ollama --workers 1
 ```
 
-6. When you see these logs it means that vllm has started successfully
+### Option C — Vertex AI MaaS
+
 ```bash
-(APIServer pid=6656) INFO:     Waiting for application startup.
-(APIServer pid=6656) INFO:     Application startup complete.
+gcloud auth application-default login
+python benchmark.py --adapter camel --dataset mmlu --topo chain \
+  --k 5 --alpha 1 --n_samples 0 --backend vertex --workers 8 --save_log
 ```
 
-Logs will be stored locally and mirror the repository’s logs directory.
+---
+
+## Setup
+
+**Python 3.11 required** for MetaGPT. Python 3.12 works for AutoGen + CAMEL.
+
+AutoGen/CAMEL and MetaGPT have conflicting dependencies — use separate environments:
+
+```bash
+# AutoGen + CAMEL
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# MetaGPT (separate env)
+python -m venv .venv-metagpt && source .venv-metagpt/bin/activate
+pip install -r requirements-metagpt.txt
+```
 
 ---
 
-# 🛠️ CLI Configuration Flags
+## CLI Reference
 
-| Flag           | Default    | Description                                                                       |
-| -------------- | ---------- | --------------------------------------------------------------------------------- |
-| `--adapter`    | `autogen`  | Framework: `autogen`, `camel`, `metagpt`                                          |
-| `--k`          | `3`        | Number of redundant communication channels                                        |
-| `--carriers`   | `2`        | Full-text carriers (ensures majority recovery)                                    |
-| `--ghosts`     | `1`        | Toggle Ghost Rotation (1=ON, 0=OFF)                                               |
-| `--latching`   | `False`    | Enables Adaptive Adversary                                                        |
-| `--topo`       | `chain`    | Topology: `chain`, `mesh`, `peer`, `hierarchy`                                    |
-| `--metavictim` | `Engineer` | MetaGPT target role (`ProductManager`, `Architect`, `ProjectManager`, `Engineer`) |
-| `--runs`       | `1`        | Number of conversation turns/trials                                               |
-| `--judge`      | `False`    | Enable LLM-as-Judge defense: judge evaluates final output and blocks if attack succeeded (use with `--k 1`) |
+### Core
 
----
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--adapter` | `autogen` | Framework: `autogen`, `camel`, `metagpt` |
+| `--dataset` | `mbpp` | Dataset: `mmlu`, `mbpp`, `humaneval` |
+| `--topo` | `chain` | Topology: `chain`, `tree`, `complete`, `random` |
+| `--backend` | `ollama` | LLM backend: `ollama`, `vllm`, `vertex` |
 
-# 📝 AiTM Framework Mapping (Code ↔ Paper)
+### MIRROR Parameters
 
-Best-effort mapping between He et al. (2025) paper notation and repository implementation.
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--k` | `3` | Total communication channels |
+| `--alpha` | `1` | Compromised channels (attack strength) |
+| `--carriers` | `2` | Full-text carrier channels (must be > alpha) |
+| `--ghosts` | `1` | Ghost rotation slots (0 = static BFT) |
 
-| Paper Notation | Concept                | Repository Implementation                     |
-| -------------- | ---------------------- | --------------------------------------------- |
-| $G$            | Communication Topology | `scenarios/` (Chain, Mesh, Peer, Hierarchy)   |
-| $A$            | Agent Set              | `autogen.ConversableAgent` instances          |
-| $A^{ad}$       | Adversarial Agent      | `agents/adversary.py` (`LlamaAdversary`)      |
-| $A^{vic}$      | Victim Agent           | Hooked agent in `core/autogen_adapter.py`     |
-| $M_{i \to j}$  | Inter-agent Message    | Message string intercepted by adapters        |
-| $AG$           | Attack Goal            | `core/library.py` (`ATTACK_LIBRARY`)          |
-| $R_{mon}$      | Monitoring Mechanism   | `eval/logger.py` (`AttackLogger`)             |
-| $R_{ref}$      | Reflection Mechanism   | `manipulate()` Stage 1 (Planning Loop)        |
-| $ASR$          | Attack Success Rate    | `eval/metrics.py` (`Evaluator.calculate_asr`) |
+### Execution
 
----
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--n_samples` | `20` | Tasks to run (0 = full dataset) |
+| `--workers` | `1` | Concurrent workers: 1 = sequential, N = fixed pool, 0 = adaptive (vllm only) |
+| `--min-workers` | `2` | Adaptive mode: minimum workers |
+| `--max-workers` | `16` | Adaptive mode: maximum workers |
 
-# 🛡️ Implementation Details
+### Defense
 
-## The Interceptor ($A^{ad}$)
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--judge` | off | Enable LLM-as-Judge as secondary defense |
+| `--judge-mode` | `blind` | Judge mode: `blind` (realistic) or `whitebox` |
 
-The adversarial agent is implemented via **monkey-patching hooks** inside framework adapters.
+### Output
 
-### Mechanism
-
-* Overrides native receiving methods:
-
-  * `.receive()` in AutoGen
-  * `.put_message()` in MetaGPT
-* Diverts message $M$ from agent $i$ → $j$ through adversary before processing.
-
-### Stealth
-
-* Requires **zero changes** to underlying MAS architecture.
-* Fulfills the paper’s black-box constraint.
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--save_log` | off | Save per-trial JSON log to `logs/` |
+| `--debug` | off | Save per-task raw output to `debug/` |
 
 ---
 
-## Instruction Reflection ($R_{ref}$)
+## Scenarios
 
-Implements **Two-Stage Reflection** to preserve semantic consistency.
+### Baseline (no defense, k=1)
 
-### 1️⃣ Reflection Stage (Planning)
+```bash
+python benchmark.py --adapter autogen --dataset mmlu --topo chain --k 1 --alpha 1
+```
 
-* 70B Llama analyzes:
+### MIRROR Defense (k=5, α=1)
 
-  * Sender identity
-  * Communication format (Python, JSON, etc.)
-* Crafts stealth injection strategy.
+```bash
+python benchmark.py --adapter autogen --dataset mmlu --topo chain --k 5 --alpha 1
+```
 
-### 2️⃣ Execution Stage (Manipulation)
+### Sensitivity Analysis (α sweep)
 
-Applies:
+```bash
+for alpha in 1 2 3 4; do
+  python benchmark.py --adapter autogen --dataset mmlu --topo chain \
+    --k 5 --alpha $alpha --n_samples 0 --backend vllm --workers 20 --save_log
+done
+```
 
-* Shadowing
-* Mimicry
+### With LLM-as-Judge
 
-Rewrites message to embed Attack Goal ($AG$) while maintaining syntactic validity.
-
----
-
-# 🌐 Topology Patterns ($G$)
-
-Pre-configured scenarios matching the paper:
-
-### 🔗 Chain Pattern
-
-Single point of failure (Executor).
-
-### 🕸️ Mesh Pattern
-
-Centralized communication (Group Chat Manager vulnerability).
-
-### 🤝 Peer Pattern
-
-1-on-1 collaboration exploit.
-
-### 🏢 Hierarchy Pattern
-
-Targets Manager nodes that summarize and delegate tasks.
+```bash
+python benchmark.py --adapter autogen --dataset mmlu --topo chain \
+  --k 5 --alpha 1 --judge --judge-mode blind --backend vllm
+```
 
 ---
 
-# ⚔️ Attack Library ($A^{ad}$)
+## Project Structure
 
-Implemented attack types:
-
-* **Backdoor Attack**
-  Stealth credential injection.
-
-* **Shadowing Attack**
-  Silent logging line insertion.
-
-* **Persistent Attack**
-  Background monitoring script injection.
-
-* **Disruption Attack**
-  Alters operators/operands to change computation results.
+```
+benchmark.py          Main entry point
+experiment_loader.py  Dataset loaders (MMLU, HumanEval, MBPP)
+config.py             LLM backend configuration
+agents/adversary.py   AiTM adversary (LlamaAdversary)
+adapters/             AutoGen / CAMEL / MetaGPT adapters
+topologies/           chain, tree, complete, random
+MIRROR_core/          BFT engine + transport layer
+eval/
+  metrics.py          ASR / TPR / FPR / QPR evaluators
+  judge.py            LLM-as-Judge defense
+  logger.py           Per-trial trial logger
+backends/
+  vertex.py           Vertex AI MaaS client (ADC + retry)
+data/
+  mmlu/               MMLU biology + physics (707 tasks)
+  sanitized-mbpp.json MBPP (974 tasks)
+  test-*.parquet      HumanEval (164 tasks)
+```
 
 ---
 
-# 🚀 Next Steps
+## Paper Mapping
 
-* Build a `.json` dataset loader for `main.py` to run multiple prompts
-* Create a `run_evals.sh` script to automate benchmark execution
+| Paper Notation | Concept | Implementation |
+|----------------|---------|----------------|
+| $k$ | Channel count | `--k` |
+| $\alpha$ | Compromised channels | `--alpha` |
+| $A^{ad}$ | Adversarial agent | `agents/adversary.py` |
+| $A^{vic}$ | Victim agent | Hooked in adapters |
+| $M_{i \to j}$ | Inter-agent message | Intercepted in `MIRROR_core/` |
+| ASR | Attack Success Rate | `eval/metrics.py` |
+| QPR | Quorum Poisoning Rate | `eval/metrics.py` |
+| TPR / FPR | Detection sensitivity | `eval/metrics.py` |
