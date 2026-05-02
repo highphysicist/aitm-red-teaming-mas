@@ -3,8 +3,10 @@
 *.idea*
 venv/
 env/
+.venv/
 venv-metagpt/
 venv-meta/
+requirements_utf8.txt
 
 # Python Cache & Compiled Files
 /.cache/
@@ -33,3 +35,4 @@ adapters/__pycache__/metagpt_adapter.cpython-311.pyc
 .claude/
 .mcp.json
 key.json
+debug/

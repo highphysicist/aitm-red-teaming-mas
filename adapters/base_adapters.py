@@ -1,4 +1,5 @@
 import time
+import random
 
 class BaseMirrorAdapter:
     def __init__(self, engine, adversary, protocols, victim_name, logger=None):
@@ -14,6 +15,7 @@ class BaseMirrorAdapter:
         self.logger = logger
         self.attacked_channels = []
         self.victim_name = victim_name
+        self.latching = False
         self.telemetry = {
             "adapter": self.__class__.__name__,
             "messages": 0,
@@ -25,35 +27,54 @@ class BaseMirrorAdapter:
         }
 
     def set_attack_target(self, channel_indices):
-        """
-        Defines which channels the adversary currently controls (e.g., [0] or [0, 1]).
-        """
+        """Defines which logical channel IDs the adversary controls."""
         self.attacked_channels = channel_indices
 
     def secure_transmit(self, message, sender_name, receiver_name):
         """
         The Universal Bridge: Splits, Distributes, and Resolves messages.
+
+        Key correctness invariant: attacked channels must update their hash
+        to reflect their poisoned content, otherwise the majority vote sees
+        all channels agreeing on real_hash even when content is poisoned,
+        causing DATA_INTEGRITY_VIOLATION instead of correct attack/defense.
         """
         end_to_end_start = time.perf_counter()
         sender_phase_start = time.perf_counter()
 
-        # [FIX] Removed the broken self.logger.log() call here.
-
+        # FIX 1 (Strip Bug): clean message BEFORE hashing so all channels
+        # (text + witness) compute hashes from the same canonical string.
+        message = str(message).strip()
         packets = self.engine.prepare_packets(message)
         candidates = []
-        traitors = []
+
+        # Cache poison so adversary LLM is called only once per transmission
+        cached_poison = None
+        target_matched = self.victim_name in [sender_name, receiver_name]
 
         for packet in packets:
-            i = packet['channel_index']
-            if packet.get('type') == 'witness':
-                candidates.append(packet)
-                continue
-
-            target_matched = self.victim_name in [sender_name, receiver_name]
+            # Use logic_id (not channel_index) so ghost rotation works correctly:
+            # after rotation a slot gets a new logic_id the attacker doesn't hold.
+            i = packet['logic_id']
 
             if target_matched and i in self.attacked_channels:
-                poisoned_msg = self.adversary.manipulate(packet['content'], sender_name, receiver_name)
-                packet['content'] = poisoned_msg
+                if cached_poison is None:
+                    cached_poison = self.adversary.manipulate(
+                        message, sender_name, receiver_name
+                    )
+                    cached_poison = str(cached_poison).strip()
+
+                if packet.get('type') == 'text':
+                    packet['content'] = cached_poison
+
+                # Update hash for ALL attacked channels (text + witness) so the
+                # Byzantine vote correctly reflects the adversary's version.
+                packet['hash'] = self.engine._get_hash(cached_poison)
+
+            else:
+                # Honest channels: prepare_packets already set correct content
+                # and hash from the stripped message (FIX 1). No update needed.
+                pass
 
             candidates.append(packet)
 
@@ -72,10 +93,23 @@ class BaseMirrorAdapter:
         self.telemetry["mirror_time_sec_total"] += (end_to_end_end - end_to_end_start)
         self.telemetry["end_to_end_sec_total"] += (end_to_end_end - end_to_end_start)
 
-        # TRUE DYNAMIC LATCHING SPREAD
-        if getattr(self, 'latching', False):
-            import random
-            # The attacker tries to sniff the currently active logical ports
+        # FIX 3 (Logger): actually record the trial so QPR/TPR metrics work.
+        if hasattr(self, 'logger') and self.logger:
+            self.logger.log_trial(
+                sender=sender_name,
+                receiver=receiver_name,
+                original_msg=message,
+                final_msg=final_message,
+                traitors=traitors,
+                attacked_channels=self.attacked_channels,
+                latency=(end_to_end_end - end_to_end_start),
+                adapter_name=self.__class__.__name__,
+                mirror_time_sec=(end_to_end_end - end_to_end_start),
+                mirror_sender_sec=(sender_phase_end - sender_phase_start),
+                mirror_receiver_sec=(receiver_phase_end - receiver_phase_start),
+            )
+
+        if self.latching:
             active_ids = self.engine.active_channel_ids
             available = [l_id for l_id in active_ids if l_id not in self.attacked_channels]
             if available:
@@ -84,6 +118,11 @@ class BaseMirrorAdapter:
 
         return final_message, traitors
 
+    def extract_judge_input(self, raw_output: str) -> str:
+        """Return the portion of raw_output the judge should evaluate.
+        Default: pass through. Subclasses override to strip echoed context."""
+        return raw_output
+
     def get_runtime_stats(self):
         messages = self.telemetry["messages"]
         total_time = self.telemetry["mirror_time_sec_total"]
@@ -91,7 +130,6 @@ class BaseMirrorAdapter:
         sender_total = self.telemetry["mirror_sender_sec_total"]
         receiver_total = self.telemetry["mirror_receiver_sec_total"]
         end_to_end_total = self.telemetry["end_to_end_sec_total"]
-        
         end_to_end_avg = (end_to_end_total / messages) if messages else 0.0
 
         return {
@@ -103,5 +141,5 @@ class BaseMirrorAdapter:
             "mirror_sender_sec_total": sender_total,
             "mirror_receiver_sec_total": receiver_total,
             "end_to_end_sec_total": end_to_end_total,
-            "end_to_end_sec_avg": end_to_end_avg  # [FIX] Added the missing key here!
+            "end_to_end_sec_avg": end_to_end_avg,
         }

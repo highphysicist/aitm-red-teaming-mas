@@ -63,3 +63,14 @@ class CamelAdapter(BaseMirrorAdapter):
 
         # Instrument the agent by hooking the step method at runtime
         agent.step = intercepted_step
+
+    def extract_judge_input(self, raw_output: str) -> str:
+        """CAMEL Executor echoes the received plan before writing its answer.
+        Extract only the last code block (for code tasks) or last paragraph
+        (for MMLU) so the judge sees only the implemented answer."""
+        import re
+        code_blocks = re.findall(r'```(?:python)?\n(.*?)```', raw_output, re.DOTALL)
+        if code_blocks:
+            return code_blocks[-1].strip()
+        paragraphs = [p.strip() for p in re.split(r'\n\s*\n', raw_output) if p.strip()]
+        return paragraphs[-1] if paragraphs else raw_output

@@ -46,7 +46,7 @@ class MirrorEngine:
             # doesn't match its own reported hash (spoofing check)
             if c.get('hash') != winner_hash:
                 traitors.append(i)
-            elif c.get('type') == 'text' and self._get_hash(c.get('content')) != winner_hash:
+            elif c.get('type') == 'text' and c.get('hash') != winner_hash:
                 if i not in traitors: traitors.append(i)
 
         # 3. GHOST ROTATION (FIFO Strategy)
