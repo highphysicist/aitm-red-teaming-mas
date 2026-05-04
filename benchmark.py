@@ -386,7 +386,8 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
 
             if getattr(args, "debug", False):
                 import os as _os
-                _os.makedirs("debug", exist_ok=True)
+                _debug_dir = _os.path.join(getattr(args, "_run_dir", "results"), "debug")
+                _os.makedirs(_debug_dir, exist_ok=True)
                 debug_entry = {
                     "task_id":          task["task_id"],
                     "task_prompt":      task["_prompt"],
@@ -399,7 +400,7 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
                     "correct_answer":   correct_answer,
                 }
                 debug_file = _os.path.join(
-                    "debug",
+                    _debug_dir,
                     f"debug_{args.adapter}_{args.dataset}_{task['task_id'].replace('/', '_')}.json"
                 )
                 with open(debug_file, "w") as _f:
@@ -597,6 +598,18 @@ def main():
 
     topo_module = TOPOLOGIES[args.topo]
 
+    # ── Per-run output directory — created before execution so debug files land here ──
+    import json
+    import os
+    from datetime import datetime
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_name  = (f"{args.adapter}_{args.dataset}_{args.topo}"
+                 f"_k{args.k}_alpha{args.alpha}_{timestamp}")
+    run_dir   = os.path.join("results", run_name)
+    os.makedirs(run_dir, exist_ok=True)
+    args._run_dir = run_dir   # forwarded to _run_one_task for debug files
+
     # ── Accumulators ──────────────────────────────────────────────────────────
     results        = []
     global_trials  = []
@@ -709,17 +722,8 @@ def main():
               f"{Evaluator.calculate_system_availability(global_trials)['display']}")
     print("=" * 50)
     
-    import json
-    import os
-    from datetime import datetime
-
-    # Create a filename based on the settings
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = "results"
-    os.makedirs(output_dir, exist_ok=True)
-    filename = os.path.join(output_dir, f"results_{args.adapter}_{args.dataset}_{args.topo}_k{args.k}_alpha{args.alpha}_{timestamp}.json")
-    
-    # Compile the final data payload
+    # ── Save results JSON into run_dir ────────────────────────────────────────
+    filename = os.path.join(run_dir, f"results_{run_name}.json")
     export_data = {
         "settings": vars(args),
         "summary": {
@@ -740,16 +744,13 @@ def main():
     try:
         with open(filename, "w") as f:
             json.dump(export_data, f, indent=4)
-        print(f"\n[💾] Full results safely written to: {os.path.abspath(filename)}")
+        print(f"\n Results → {os.path.abspath(filename)}")
     except Exception as e:
-        print(f"\n[❌] Failed to save results: {e}")
+        print(f"\n[ERR] Failed to save results: {e}")
 
-    # ── Optionally save full trial log to logs/ (for judge analysis) ─────────
+    # ── Optionally save full trial log into run_dir ───────────────────────────
     if args.save_log:
-        ts  = datetime.now().strftime("%Y%m%d_%H%M%S")
-        tag = f"k{args.k}_{args.dataset}_{args.attack_type}"
-        path = os.path.join("logs", f"run_{tag}_{ts}.json")
-        os.makedirs("logs", exist_ok=True)
+        log_path = os.path.join(run_dir, f"run_{run_name}.json")
         payload = {
             "meta": {
                 "k": args.k, "dataset": args.dataset,
@@ -762,13 +763,13 @@ def main():
                 "asr_no_defense_pct": round(
                     sum(1 for r in results if r.get("ground_truth_success")) / n_total * 100, 2
                 ) if args.judge and n_total else None,
-                "timestamp": ts,
+                "timestamp": timestamp,
             },
             "trials": global_trials,
         }
-        with open(path, "w") as f:
+        with open(log_path, "w") as f:
             json.dump(payload, f, indent=2)
-        print(f"[Logger] Trial log saved → {path}")
+        print(f" Run log  → {log_path}")
 
 
 if __name__ == "__main__":
