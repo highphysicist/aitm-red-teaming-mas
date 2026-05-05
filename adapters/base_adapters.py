@@ -42,7 +42,6 @@ class BaseMirrorAdapter:
         end_to_end_start = time.perf_counter()
         sender_phase_start = time.perf_counter()
 
-        # FIX 1 (Strip Bug): clean message BEFORE hashing so all channels
         # (text + witness) compute hashes from the same canonical string.
         message = str(message).strip()
         packets = self.engine.prepare_packets(message)
@@ -53,8 +52,6 @@ class BaseMirrorAdapter:
         target_matched = self.victim_name in [sender_name, receiver_name]
 
         for packet in packets:
-            # Use logic_id (not channel_index) so ghost rotation works correctly:
-            # after rotation a slot gets a new logic_id the attacker doesn't hold.
             i = packet['logic_id']
 
             if target_matched and i in self.attacked_channels:
@@ -67,13 +64,11 @@ class BaseMirrorAdapter:
                 if packet.get('type') == 'text':
                     packet['content'] = cached_poison
 
-                # Update hash for ALL attacked channels (text + witness) so the
-                # Byzantine vote correctly reflects the adversary's version.
+                # Update hash for ALL attacked channels (text + witness) so the Byzantine vote correctly reflects the adversary's
                 packet['hash'] = self.engine._get_hash(cached_poison)
 
             else:
-                # Honest channels: prepare_packets already set correct content
-                # and hash from the stripped message (FIX 1). No update needed.
+                # Honest channels: prepare_packets already set correct content and hash from the stripped message
                 pass
 
             candidates.append(packet)
@@ -93,7 +88,6 @@ class BaseMirrorAdapter:
         self.telemetry["mirror_time_sec_total"] += (end_to_end_end - end_to_end_start)
         self.telemetry["end_to_end_sec_total"] += (end_to_end_end - end_to_end_start)
 
-        # FIX 3 (Logger): actually record the trial so QPR/TPR metrics work.
         if hasattr(self, 'logger') and self.logger:
             self.logger.log_trial(
                 sender=sender_name,

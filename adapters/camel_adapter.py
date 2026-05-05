@@ -14,7 +14,7 @@ class CamelAdapter(BaseMirrorAdapter):
 
         def intercepted_step(input_message):
             try:
-                # Extract the string content and sender name from CAMEL's message object
+                # extract the string content and sender name from CAMEL's message object
                 if isinstance(input_message, str):
                     message_content = input_message
                     sender_name = "Unknown_Sender"
@@ -30,11 +30,9 @@ class CamelAdapter(BaseMirrorAdapter):
                 # We only intercept internal agent communication (Never the User's prompt)
                 if sender_name != "User":
                     
-                    # --- 1. MIRROR BFT CONSENSUS ---
-                    # Pass the CLEAN message. secure_transmit will internally trigger 
-                    # the adversary ONLY for the channels it controls (alpha).
+                    # BFT consensus
                     final_decision, traitors = self.secure_transmit(
-                        message_content,  # <--- CRITICAL FIX: This was incorrectly set to poisoned_msg
+                        message_content, 
                         sender_name,
                         self.victim_name
                     )
@@ -46,7 +44,7 @@ class CamelAdapter(BaseMirrorAdapter):
                     if final_decision:
                         message_content = final_decision
 
-                # Repackage the payload securely into CAMEL's expected format
+                # repackage the payload securely into CAMEL's expected format
                 if isinstance(input_message, str):
                     return original_step(message_content)
                 
@@ -55,13 +53,10 @@ class CamelAdapter(BaseMirrorAdapter):
                 return original_step(secure_message)
 
             except Exception as e:
-                # If the PermissionError is raised, let it bubble up to the benchmark script
                 if isinstance(e, PermissionError):
                     raise e
                 print(f"[DEBUG CAMEL ADAPTER] ❌ Crash inside interceptor: {e}")
                 return original_step(input_message)
-
-        # Instrument the agent by hooking the step method at runtime
         agent.step = intercepted_step
 
     def extract_judge_input(self, raw_output: str) -> str:

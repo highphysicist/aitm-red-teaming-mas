@@ -49,11 +49,11 @@ class MirrorEngine:
             elif c.get('type') == 'text' and c.get('hash') != winner_hash:
                 if i not in traitors: traitors.append(i)
 
-        # 3. GHOST ROTATION (FIFO Strategy)
+        # GHOST ROTATION (FIFO Strategy)
         if traitors:
             self._rotate_ghost_channels(traitors)
 
-        # 4. RECOVERY
+        # RECOVERY
         if consensus_reached:
             for c in candidates:
                 if c.get('type') == 'text' and self._get_hash(c.get('content')) == winner_hash:
