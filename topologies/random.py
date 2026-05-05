@@ -95,7 +95,7 @@ def _setup_camel(hook):
 def _setup_autogen(hook):
     from autogen import AssistantAgent, UserProxyAgent, GroupChat, GroupChatManager
 
-    # 1. Define the trigger once
+    # Define the trigger once
     term_trigger = lambda msg: "TERMINATE" in str(msg.get("content", ""))
 
     agent1 = AssistantAgent(
