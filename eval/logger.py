@@ -6,8 +6,7 @@ class AttackLogger:
     def __init__(self, log_dir="logs"):
         self.events = []
         self.log_dir = log_dir
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+        os.makedirs(log_dir, exist_ok=True)
 
     def save(self, filename=None):
         if not filename:

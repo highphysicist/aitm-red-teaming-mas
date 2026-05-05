@@ -7,20 +7,20 @@ load_dotenv()
 class Config:
     # --- Infrastructure Settings ---
     # Using local Ollama for the Victims to keep them fast
-    _LOCAL_URL = "http://localhost:11434/v1"
+    _LOCAL_URL = "http://localhost:8000/v1"
 
     # Using Qwen 32B for the Adversary to ensure stealth and high-quality code injection
     # This model is much less likely to "apologize" or "explain" than Llama 3
     ADVERSARY_URL = _LOCAL_URL
     # Google Collab RESTORE
     #ADVERSARY_MODEL = "qwen2.5:32b"
-    ADVERSARY_MODEL = "qwen2.5:14b"
+    ADVERSARY_MODEL = "google/gemma-4-31b-it"
 
     VICTIM_CONFIG = {
         "config_list": [
             {
-                "model": "qwen2.5:14b",
-                "api_key": "ollama",
+                "model": "google/gemma-4-31b-it",
+                "api_key": "EMPTY",
                 "base_url": _LOCAL_URL,
                 "api_type": "openai",
                 "price": [0.0, 0.0]
@@ -48,8 +48,30 @@ class Config:
     }
 
     # --- LLM-as-Judge Settings ---
-    # "ollama" uses local Ollama (no API key needed)
+    # "local"  uses vLLM / any OpenAI-compatible server at _LOCAL_URL (Colab default)
+    # "ollama" uses local Ollama SDK (no API key needed)
     # "openai" uses OpenAI API (requires JUDGE_OPENAI_KEY)
-    JUDGE_BACKEND = "ollama"
-    JUDGE_MODEL   = "qwen2.5:14b"
+    # "vertex" uses Vertex AI MaaS (requires ADC via gcloud)
+    JUDGE_BACKEND = "local"
+    JUDGE_MODEL   = "google/gemma-4-31b-it"
     JUDGE_OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
+
+    # --- Vertex AI (Serverless MaaS) ---
+    VERTEX_MODEL    = "google/gemma-4-26b-a4b-it-maas"
+    VERTEX_BASE_URL = (
+        "https://aiplatform.googleapis.com/v1beta1/projects/aitm-red-teaming-493507"
+        "/locations/global/endpoints/openapi"
+    )
+    VERTEX_VICTIM_CONFIG = {
+        "config_list": [{
+            "model":    "google/gemma-4-26b-a4b-it-maas",
+            "api_key":  "PLACEHOLDER",   # overwritten at runtime by benchmark.py
+            "base_url": (
+                "https://aiplatform.googleapis.com/v1beta1/projects/aitm-red-teaming-493507"
+                "/locations/global/endpoints/openapi"
+            ),
+            "api_type": "openai",
+            "price":    [0.00013, 0.00038],
+        }],
+        "cache_seed": None,
+    }
