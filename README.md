@@ -103,8 +103,19 @@ pip install -r requirements-metagpt.txt
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--save_log` | off | Save per-trial JSON log to `logs/` |
-| `--debug` | off | Save per-task raw output to `debug/` |
+| `--save_log` | off | Save per-trial JSON log into the run directory |
+| `--debug` | off | Save per-task raw output into the run directory |
+
+Every run creates a dedicated directory under `results/`:
+
+```
+results/
+  {adapter}_{dataset}_{topo}_k{k}_alpha{alpha}_{timestamp}/
+    results_{run_name}.json      # summary + per-task results
+    run_{run_name}.json          # per-trial MIRROR log (--save_log)
+    debug/                       # per-task raw output (--debug)
+      debug_{adapter}_{dataset}_{task_id}.json
+```
 
 ---
 
@@ -160,6 +171,11 @@ data/
   mmlu/               MMLU biology + physics (707 tasks)
   sanitized-mbpp.json MBPP (974 tasks)
   test-*.parquet      HumanEval (164 tasks)
+results/              Per-run output directories (created at runtime)
+  {run_name}/
+    results_{run_name}.json
+    run_{run_name}.json        (--save_log)
+    debug/                     (--debug)
 ```
 
 ---
