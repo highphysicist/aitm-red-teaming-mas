@@ -54,5 +54,6 @@ typing_extensions==4.15.0
 urllib3==2.6.3
 uvicorn==0.41.0
 websockets==15.0.1
+google-auth>=2.0.0          # required for --backend vertex (Vertex AI MaaS ADC)
 lshw
 vllm==0.19.1
