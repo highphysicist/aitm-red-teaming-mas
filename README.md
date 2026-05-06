@@ -24,23 +24,25 @@ bash vllm.sh          # serves google/gemma-4-31b-it on localhost:8000
 
 # 3. Run benchmark
 python benchmark.py --adapter autogen --dataset mmlu --topo chain \
-  --k 5 --alpha 1 --n_samples 0 --backend vllm --workers 30 --save_log
+  --k 5 --num_compromised 1 --n_samples 0 --backend vllm --workers 30 --save_log
 ```
 
 ### Option B — Local (Ollama)
 
 ```bash
 ollama pull qwen2.5:14b
+
 python benchmark.py --adapter autogen --dataset mmlu --topo chain \
-  --k 5 --alpha 1 --n_samples 20 --backend ollama --workers 1
+  --k 5 --num_compromised 1 --n_samples 20 --backend ollama --workers 1
 ```
 
 ### Option C — Vertex AI MaaS
 
 ```bash
 gcloud auth application-default login
+
 python benchmark.py --adapter camel --dataset mmlu --topo chain \
-  --k 5 --alpha 1 --n_samples 0 --backend vertex --workers 8 --save_log
+  --k 5 --num_compromised 1 --n_samples 0 --backend vertex --workers 8 --save_log
 ```
 
 ---
@@ -58,7 +60,8 @@ pip install -r requirements.txt
 
 # MetaGPT (separate env)
 python -m venv .venv-metagpt && source .venv-metagpt/bin/activate
-pip install -r requirements-metagpt.txt
+pip install uv
+uv pip install -r requirements-metagpt.txt
 ```
 
 ---
@@ -79,8 +82,8 @@ pip install -r requirements-metagpt.txt
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--k` | `3` | Total communication channels |
-| `--alpha` | `1` | Compromised channels (attack strength) |
-| `--carriers` | `2` | Full-text carrier channels (must be > alpha) |
+| `--num_compromised` | `1` | Number of compromised channels (c in the paper) |
+| `--carriers` | `2` | Full-text carrier channels (must be > num_compromised) |
 | `--ghosts` | `1` | Ghost rotation slots (0 = static BFT) |
 
 ### Execution
@@ -110,7 +113,7 @@ Every run creates a dedicated directory under `results/`:
 
 ```
 results/
-  {adapter}_{dataset}_{topo}_k{k}_alpha{alpha}_{timestamp}/
+  {adapter}_{dataset}_{topo}_k{k}_comp{num_compromised}_{timestamp}/
     results_{run_name}.json      # summary + per-task results
     run_{run_name}.json          # per-trial MIRROR log (--save_log)
     debug/                       # per-task raw output (--debug)
@@ -124,21 +127,23 @@ results/
 ### Baseline (no defense, k=1)
 
 ```bash
-python benchmark.py --adapter autogen --dataset mmlu --topo chain --k 1 --alpha 1
+python benchmark.py --adapter autogen --dataset mmlu --topo chain \
+  --k 1 --num_compromised 1
 ```
 
 ### MIRROR Defense (k=5, α=1)
 
 ```bash
-python benchmark.py --adapter autogen --dataset mmlu --topo chain --k 5 --alpha 1
+python benchmark.py --adapter autogen --dataset mmlu --topo chain \
+  --k 5 --num_compromised 1
 ```
 
 ### Sensitivity Analysis (α sweep)
 
 ```bash
-for alpha in 1 2 3 4; do
+for c in 1 2 3 4; do
   python benchmark.py --adapter autogen --dataset mmlu --topo chain \
-    --k 5 --alpha $alpha --n_samples 0 --backend vllm --workers 20 --save_log
+    --k 5 --num_compromised $c --backend vllm --workers 20 --save_log
 done
 ```
 
@@ -146,7 +151,7 @@ done
 
 ```bash
 python benchmark.py --adapter autogen --dataset mmlu --topo chain \
-  --k 5 --alpha 1 --judge --judge-mode blind --backend vllm
+  --k 5 --num_compromised 1 --judge --backend vllm
 ```
 
 ---
@@ -185,7 +190,8 @@ results/              Per-run output directories (created at runtime)
 | Paper Notation | Concept | Implementation |
 |----------------|---------|----------------|
 | $k$ | Channel count | `--k` |
-| $\alpha$ | Compromised channels | `--alpha` |
+| $c$ | Number of compromised channels | `--num_compromised` |
+| $\alpha = \frac{c}{k}$ | Fraction of compromised channels | computed internally |
 | $A^{ad}$ | Adversarial agent | `agents/adversary.py` |
 | $A^{vic}$ | Victim agent | Hooked in adapters |
 | $M_{i \to j}$ | Inter-agent message | Intercepted in `MIRROR_core/` |
