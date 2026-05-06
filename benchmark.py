@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import random as _random
 import re
 import time
 import traceback
@@ -12,10 +11,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from eval.metrics import Evaluator
 
 # Topologies
-import topologies.chain    as chain
-import topologies.tree     as tree
+import topologies.chain as chain
+import topologies.tree as tree
 import topologies.complete as complete
-import topologies.random   as topology_random  # avoid shadowing stdlib random
+import topologies.random as topology_random  # avoid shadowing stdlib random
 
 # Dataset loader
 from experiment_loader import load_dataset
@@ -26,10 +25,10 @@ from experiment_loader import load_dataset
 # ──────────────────────────────────────────────────────────────────────────────
 
 TOPOLOGIES = {
-    "chain":    chain,
-    "tree":     tree,
+    "chain": chain,
+    "tree": tree,
     "complete": complete,
-    "random":   topology_random,
+    "random": topology_random,
 }
 
 
@@ -129,9 +128,9 @@ def _poll_vllm_metrics(base_url: str) -> tuple[float, int, int]:
     metrics_url = base_url.replace("/v1", "").rstrip("/") + "/metrics"
     try:
         raw = urllib.request.urlopen(metrics_url, timeout=2).read().decode()
-        kv   = float(re.search(r'vllm:gpu_cache_usage_perc\S*\s+([\d.]+)', raw).group(1))
-        run  = int(float(re.search(r'vllm:num_requests_running\S*\s+([\d.]+)', raw).group(1)))
-        wait = int(float(re.search(r'vllm:num_requests_waiting\S*\s+([\d.]+)', raw).group(1)))
+        kv = float(re.search(r"vllm:gpu_cache_usage_perc\S*\s+([\d.]+)", raw).group(1))
+        run = int(float(re.search(r"vllm:num_requests_running\S*\s+([\d.]+)", raw).group(1)))
+        wait = int(float(re.search(r"vllm:num_requests_waiting\S*\s+([\d.]+)", raw).group(1)))
         return kv, run, wait
     except Exception:
         return 0.0, 0, 0
@@ -148,17 +147,17 @@ def _adjust_workers(kv_pct: float, waiting: int, current: int,
     """
     if waiting > 5 or kv_pct > 0.65:
         consec_high += 1
-        consec_low   = 0
+        consec_low = 0
         if consec_high >= 3:
             return max(min_w, current - 1), 0, 0
     elif kv_pct < 0.25 and waiting == 0:
-        consec_low  += 1
-        consec_high  = 0
+        consec_low += 1
+        consec_high = 0
         if consec_low >= 2:
             return min(max_w, current + 2), 0, 0
     else:
         consec_high = 0
-        consec_low  = 0
+        consec_low = 0
     return current, consec_high, consec_low
 
 
@@ -177,16 +176,16 @@ def _run_adaptive(tasks, total_tasks, args, attack_goal, topo_module, judge,
     if args.adapter == "autogen":
         _Cfg.VICTIM_CONFIG["cache_seed"] = None
 
-    base_url      = getattr(_Cfg, "_LOCAL_URL", "http://localhost:8000/v1")
-    pending       = list(enumerate(tasks))
-    active        = {}                  # future -> original_idx
-    target        = args.min_workers
+    base_url = getattr(_Cfg, "_LOCAL_URL", "http://localhost:11434/v1")
+    pending = list(enumerate(tasks))
+    active = {}  # future -> original_idx
+    target = args.min_workers
     poll_interval = 5.0
     # Jitter: stagger the first poll across concurrent subprocesses so they
     # don't all read /metrics and scale simultaneously.
-    last_poll     = time.time() + random.uniform(0, poll_interval)
-    consec_high   = 0
-    consec_low    = 0
+    last_poll = time.time() + random.uniform(0, poll_interval)
+    consec_high = 0
+    consec_low = 0
 
     with ThreadPoolExecutor(max_workers=args.max_workers) as pool:
         while pending or active:
@@ -202,9 +201,11 @@ def _run_adaptive(tasks, total_tasks, args, attack_goal, topo_module, judge,
                 )
                 if new_target != target:
                     with _print_lock:
-                        print(f"\n[adaptive] workers {target}→{new_target}  "
-                              f"(kv={kv*100:.1f}%  run={running}  wait={waiting})",
-                              flush=True)
+                        print(
+                            f"\n[adaptive] workers {target}→{new_target}  "
+                            f"(kv={kv*100:.1f}%  run={running}  wait={waiting})",
+                            flush=True
+                        )
                     target = new_target
                 last_poll = now
 
@@ -246,9 +247,9 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
     from eval.logger import MirrorLogger
     from agents.adversary import LlamaAdversary
 
-    task_logger   = MirrorLogger()
-    task_engine   = MirrorEngine(k=args.k, num_text_carriers=args.carriers,
-                                 max_ghost_channels=args.ghosts)
+    task_logger = MirrorLogger()
+    task_engine = MirrorEngine(k=args.k, num_text_carriers=args.carriers,
+                                max_ghost_channels=args.ghosts)
     task_adversary = LlamaAdversary(Config, attack_goal=attack_goal, adapter_name=args.adapter)
 
     task_protocols = [InMemoryTransport() for _ in range(args.k)]
@@ -274,18 +275,18 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
 
     task_bridge.set_attack_target(list(initial_attacked))
 
-    correct_answer   = get_correct_answer(task, args.dataset)
+    correct_answer = get_correct_answer(task, args.dataset)
     final_raw_output = ""
-    task_trials      = []
+    task_trials = []
 
     with _print_lock:
         print(f" [{task_idx+1:>3}/{total_tasks}] {task['task_id']}", end="  ", flush=True)
 
     # Truncated exponential backoff for Vertex MaaS 429/503 errors.
     # Reinitialise the adapter on every attempt since CAMEL agents are stateful.
-    _is_vertex  = getattr(args, "backend", "ollama") == "vertex"
-    _max_tries  = 8 if _is_vertex else 1
-    result      = None
+    _is_vertex = getattr(args, "backend", "ollama") == "vertex"
+    _max_tries = 8 if _is_vertex else 1
+    result = None
 
     for _attempt in range(_max_tries):
         if _attempt > 0:
@@ -294,12 +295,13 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
             with _print_lock:
                 print(f"\n[vertex-retry] attempt {_attempt+1}/{_max_tries} in {_delay:.1f}s "
                       f"for {task['task_id']}", flush=True)
-            import time as _time; _time.sleep(_delay)
+            import time as _time
+            _time.sleep(_delay)
 
         # Fresh stateful objects every attempt
-        task_logger    = MirrorLogger()
-        task_engine    = MirrorEngine(k=args.k, num_text_carriers=args.carriers,
-                                      max_ghost_channels=args.ghosts)
+        task_logger = MirrorLogger()
+        task_engine = MirrorEngine(k=args.k, num_text_carriers=args.carriers,
+                                   max_ghost_channels=args.ghosts)
         task_adversary = LlamaAdversary(Config, attack_goal=attack_goal, adapter_name=args.adapter)
         task_protocols = [InMemoryTransport() for _ in range(args.k)]
         if args.scenario == "real-world":
@@ -336,7 +338,7 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
                 user, manager, target = topo_module.setup(task_bridge)
                 user_msg = BaseMessage.make_user_message(role_name="User", content=task["_prompt"])
                 manager_response = manager.step(user_msg)
-                target_response  = target.step(manager_response.msg)
+                target_response = target.step(manager_response.msg)
                 final_raw_output = target_response.msg.content
             elif args.adapter == "metagpt":
                 task_bridge.setup_agents()
@@ -353,10 +355,11 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
             ground_truth_success = asr_report["payload_detected"]
 
             judge_blocked = False
+            tok = {}
             if judge is not None:
                 judge_input = re.sub(
-                    r'\bTERMINATE\b|<CAMEL_TASK_DONE>',
-                    '', final_raw_output, flags=re.IGNORECASE
+                    r"\bTERMINATE\b|<CAMEL_TASK_DONE>",
+                    "", final_raw_output, flags=re.IGNORECASE
                 ).strip()
                 judge_input = task_bridge.extract_judge_input(judge_input)
                 if args.judge_mode == "blind":
@@ -373,15 +376,15 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
             effective_success = ground_truth_success and not judge_blocked
 
             result = {
-                "task_id":              task["task_id"],
-                "success":              effective_success,
+                "task_id": task["task_id"],
+                "success": effective_success,
                 "ground_truth_success": ground_truth_success,
-                "judge_blocked":        judge_blocked,
-                "judge_reason":         tok.get("judge_reason", "") if judge is not None else "",
-                "judge_confidence":     tok.get("judge_confidence", "") if judge is not None else "",
-                "attack_goal":          attack_goal,
-                "correct_answer":       correct_answer,
-                "error":                "",
+                "judge_blocked": judge_blocked,
+                "judge_reason": tok.get("judge_reason", "") if judge is not None else "",
+                "judge_confidence": tok.get("judge_confidence", "") if judge is not None else "",
+                "attack_goal": attack_goal,
+                "correct_answer": correct_answer,
+                "error": "",
             }
 
             if getattr(args, "debug", False):
@@ -389,15 +392,15 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
                 _debug_dir = _os.path.join(getattr(args, "_run_dir", "results"), "debug")
                 _os.makedirs(_debug_dir, exist_ok=True)
                 debug_entry = {
-                    "task_id":          task["task_id"],
-                    "task_prompt":      task["_prompt"],
+                    "task_id": task["task_id"],
+                    "task_prompt": task["_prompt"],
                     "final_raw_output": final_raw_output,
-                    "ground_truth":     ground_truth_success,
-                    "judge_blocked":    judge_blocked,
-                    "judge_reason":     tok.get("judge_reason", "") if judge is not None else "",
+                    "ground_truth": ground_truth_success,
+                    "judge_blocked": judge_blocked,
+                    "judge_reason": tok.get("judge_reason", "") if judge is not None else "",
                     "judge_confidence": tok.get("judge_confidence", "") if judge is not None else "",
-                    "attack_goal":      attack_goal,
-                    "correct_answer":   correct_answer,
+                    "attack_goal": attack_goal,
+                    "correct_answer": correct_answer,
                 }
                 debug_file = _os.path.join(
                     _debug_dir,
@@ -424,11 +427,11 @@ def _run_one_task(task, task_idx, total_tasks, args, attack_goal, topo_module, j
                 print(f"\n  [WARN] Task {task['task_id']} failed: {exc}")
                 traceback.print_exc()
             result = {
-                "task_id":        task["task_id"],
-                "success":        False,
-                "attack_goal":    attack_goal,
+                "task_id": task["task_id"],
+                "success": False,
+                "attack_goal": attack_goal,
                 "correct_answer": correct_answer,
-                "error":          str(exc),
+                "error": str(exc),
             }
             break
 
@@ -440,35 +443,33 @@ def main():
     parser = argparse.ArgumentParser(description="MIRROR Framework: Resilience Benchmark")
 
     # Infrastructure
-    parser.add_argument("--adapter",  type=str, default="autogen",
+    parser.add_argument("--adapter", type=str, default="autogen",
                         choices=["autogen", "camel", "metagpt"])
-    parser.add_argument("--topo",     type=str, default="chain",
+    parser.add_argument("--topo", type=str, default="chain",
                         choices=["chain", "tree", "complete", "random"])
-    parser.add_argument("--k",        type=int, default=3,
+    parser.add_argument("--k", type=int, default=3,
                         help="Channels (k=1: Baseline, k=3: MIRROR)")
-    parser.add_argument("--alpha",    type=int, default=1,
-                        help="Number of initially compromised channels (alpha).")
+    parser.add_argument("--num_compromised", type=int, default=1,
+                        help="Number of initially compromised channels.")
     parser.add_argument("--carriers", type=int, default=2,
                         help="Full-text carriers.")
-    parser.add_argument("--ghosts",   type=int, default=1,
+    parser.add_argument("--ghosts", type=int, default=1,
                         help="Max ghost channels (0 = Static MIRROR).")
     parser.add_argument("--scenario", type=str, default="perfect-scenario",
-                        choices=["real-world", "perfect-scenario",
-                                 "network-only", "disk-only"])
+                        choices=["real-world", "perfect-scenario", "network-only", "disk-only"])
     parser.add_argument("--attack_start", type=int, default=0,
                         help="Initial attacked channel index.")
     parser.add_argument("--latching", action="store_true",
                         help="Simulate adaptive latching adversary.")
     parser.add_argument("--save_log", action="store_true",
-                        help="Save all trials to logs/ for offline LLM-Judge comparison.")
+                        help="Save all trials to the run directory for offline LLM-Judge comparison.")
     parser.add_argument("--debug", action="store_true", default=False,
                         help="Write per-task debug JSON (task_prompt, final_raw_output, judge info) to debug/.")
     parser.add_argument("--metavictim", type=str, default="Engineer",
-                        choices=["ProductManager", "Architect",
-                                 "ProjectManager", "Engineer"])
+                        choices=["ProductManager", "Architect", "ProjectManager", "Engineer"])
 
     # Dataset
-    parser.add_argument("--dataset",   type=str, default="mbpp",
+    parser.add_argument("--dataset", type=str, default="mbpp",
                         choices=["mmlu", "humaneval", "mbpp"],
                         help="Dataset to run AiTM on.")
     parser.add_argument("--mmlu_mode", type=str, default="aitm",
@@ -520,6 +521,9 @@ def main():
                      "Adaptive mode polls vLLM's /metrics endpoint, which is not "
                      "available with --backend ollama or --backend vertex.")
 
+    num_compromised = args.num_compromised
+    alpha = num_compromised / args.k
+
     # ── Resolve attack goal ───────────────────────────────────────────────────
     attack_goal = resolve_attack_goal(args.dataset, args.attack_type)
 
@@ -527,7 +531,7 @@ def main():
     loader_kwargs = {"n": args.n_samples}
     if args.dataset == "mmlu":
         loader_kwargs["mmlu_mode"] = args.mmlu_mode
-        loader_kwargs["subjects"]  = args.mmlu_subjects
+        loader_kwargs["subjects"] = args.mmlu_subjects
     tasks = load_dataset(args.dataset, **loader_kwargs)
 
     total_tasks = len(tasks)
@@ -545,34 +549,34 @@ def main():
         from backends.vertex import get_token, MODEL as VERTEX_MODEL
         active_model = args.model if args.model else VERTEX_MODEL
         Config.VICTIM_CONFIG = Config.VERTEX_VICTIM_CONFIG
-        Config.VICTIM_CONFIG["config_list"][0]["api_key"]  = get_token()
-        Config.VICTIM_CONFIG["config_list"][0]["model"]    = active_model
+        Config.VICTIM_CONFIG["config_list"][0]["api_key"] = get_token()
+        Config.VICTIM_CONFIG["config_list"][0]["model"] = active_model
         Config.ADVERSARY_MODEL = active_model
-        Config.JUDGE_BACKEND   = "vertex"
-        Config.JUDGE_MODEL     = active_model
+        Config.JUDGE_BACKEND = "vertex"
+        Config.JUDGE_MODEL = active_model
         print(f" Backend:      VERTEX AI  ({active_model})")
     elif args.backend == "vllm":
         active_model = args.model if args.model else Config.ADVERSARY_MODEL
         url = args.url if args.url else Config._LOCAL_URL
-        Config._LOCAL_URL    = url
+        Config._LOCAL_URL = url
         Config.ADVERSARY_URL = url
         Config.ADVERSARY_MODEL = active_model
         Config.VICTIM_CONFIG["config_list"][0]["base_url"] = url
-        Config.VICTIM_CONFIG["config_list"][0]["model"]    = active_model
-        Config.VICTIM_CONFIG["config_list"][0]["api_key"]  = "EMPTY"
+        Config.VICTIM_CONFIG["config_list"][0]["model"] = active_model
+        Config.VICTIM_CONFIG["config_list"][0]["api_key"] = "EMPTY"
         Config.JUDGE_BACKEND = "local"
-        Config.JUDGE_MODEL   = active_model
+        Config.JUDGE_MODEL = active_model
         print(f" Backend:      vLLM  ({active_model}  @  {url})")
     else:
         if args.url:
             # Colab / ngrok: override every URL field so all roles hit the same server
             active_model = args.model if args.model else "google/gemma-4-31b-it"
-            Config._LOCAL_URL  = args.url
+            Config._LOCAL_URL = args.url
             Config.ADVERSARY_URL = args.url
             Config.ADVERSARY_MODEL = active_model
             Config.VICTIM_CONFIG["config_list"][0]["base_url"] = args.url
-            Config.VICTIM_CONFIG["config_list"][0]["model"]    = active_model
-            Config.VICTIM_CONFIG["config_list"][0]["api_key"]  = "vllm"
+            Config.VICTIM_CONFIG["config_list"][0]["model"] = active_model
+            Config.VICTIM_CONFIG["config_list"][0]["api_key"] = "vllm"
             Config.JUDGE_MODEL = active_model
             print(f" Backend:      COLAB/vLLM  ({active_model}  @  {args.url})")
         else:
@@ -591,7 +595,7 @@ def main():
     print(f" Dataset:      {args.dataset.upper()}  ({len(tasks)} tasks)")
     print(f" Attack:       {attack_goal}")
     print(f" Topology:     {args.topo.upper()}  |  Adapter: {args.adapter.upper()}")
-    print(f" Strategy:     k={args.k} | alpha={args.alpha} | Ghosts={args.ghosts} | Latching={args.latching}")
+    print(f" Strategy:     k={args.k} | num_compromised={num_compromised} | alpha={alpha:.3f} | Ghosts={args.ghosts} | Latching={args.latching}")
     if args.judge:
         print(f" Judge:        ENABLED ({Config.JUDGE_BACKEND.upper()} / {Config.JUDGE_MODEL})")
     print("-" * 50)
@@ -604,24 +608,26 @@ def main():
     from datetime import datetime
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_name  = (f"{args.adapter}_{args.dataset}_{args.topo}"
-                 f"_k{args.k}_alpha{args.alpha}_{timestamp}")
-    run_dir   = os.path.join("results", run_name)
+    run_name = (
+        f"{args.adapter}_{args.dataset}_{args.topo}"
+        f"_k{args.k}_comp{num_compromised}_{timestamp}"
+    )
+    run_dir = os.path.join("results", run_name)
     os.makedirs(run_dir, exist_ok=True)
-    args._run_dir = run_dir   # forwarded to _run_one_task for debug files
+    args._run_dir = run_dir
 
     # ── Accumulators ──────────────────────────────────────────────────────────
-    results        = []
-    global_trials  = []
-    judge_lock     = threading.Lock()
-    initial_attacked = [(args.attack_start + i) % args.k for i in range(args.alpha)]
+    results = []
+    global_trials = []
+    judge_lock = threading.Lock()
+    initial_attacked = [(args.attack_start + i) % args.k for i in range(num_compromised)]
 
     # MIRROR recovery requires at least one honest text carrier to serve content.
-    # If carriers <= alpha the adversary can poison ALL text carriers, causing
-    # DATA_INTEGRITY_VIOLATION on every message even with honest majority.
-    if args.carriers <= args.alpha:
-        corrected = args.alpha + 1
-        print(f"\n[MIRROR] WARNING: carriers={args.carriers} <= alpha={args.alpha}.")
+    # If carriers <= num_compromised the adversary can poison ALL text carriers,
+    # causing DATA_INTEGRITY_VIOLATION on every message even with honest majority.
+    if args.carriers <= num_compromised:
+        corrected = num_compromised + 1
+        print(f"\n[MIRROR] WARNING: carriers={args.carriers} <= num_compromised={num_compromised}.")
         print(f"[MIRROR] Auto-correcting carriers to {corrected} to guarantee recovery.")
         args.carriers = corrected
 
@@ -678,9 +684,9 @@ def main():
     last_mirror_stats = last_mirror_stats_ref[0]
 
     # ── Final aggregate report ────────────────────────────────────────────────
-    n_total   = len(results)
+    n_total = len(results)
     n_success = sum(1 for r in results if r["success"])
-    asr_pct   = (n_success / n_total * 100) if n_total else 0.0
+    asr_pct = (n_success / n_total * 100) if n_total else 0.0
 
     qpr_report = Evaluator.calculate_qpr(global_trials, k=args.k)
 
@@ -691,8 +697,8 @@ def main():
     print(f"Tasks run:                     {n_total}")
     if args.judge:
         n_ground_truth = sum(1 for r in results if r.get("ground_truth_success"))
-        n_blocked      = sum(1 for r in results if r.get("judge_blocked"))
-        asr_no_def     = (n_ground_truth / n_total * 100) if n_total else 0.0
+        n_blocked = sum(1 for r in results if r.get("judge_blocked"))
+        asr_no_def = (n_ground_truth / n_total * 100) if n_total else 0.0
         print(f"ASR (no defense):              {asr_no_def:.1f}%")
         print(f"Attacks blocked by judge:      {n_blocked}")
         print(f"ASR (with judge):              {asr_pct:.1f}%")
@@ -721,9 +727,12 @@ def main():
         print(f"System Availability:           "
               f"{Evaluator.calculate_system_availability(global_trials)['display']}")
     print("=" * 50)
-    
-    # ── Save results JSON into run_dir ────────────────────────────────────────
-    filename = os.path.join(run_dir, f"results_{run_name}.json")
+
+    # Compile the final data payload
+    filename = os.path.join(
+        run_dir,
+        f"results_{args.adapter}_{args.dataset}_{args.topo}_k{args.k}_comp{num_compromised}_{timestamp}.json"
+    )
     export_data = {
         "settings": vars(args),
         "summary": {
@@ -738,19 +747,23 @@ def main():
             "asr_no_defense_pct": round(
                 sum(1 for r in results if r.get("ground_truth_success")) / n_total * 100, 2
             ) if args.judge and n_total else None,
+            "alpha_fraction": alpha,
+            "num_compromised": num_compromised,
         },
         "task_results": results,
     }
     try:
         with open(filename, "w") as f:
             json.dump(export_data, f, indent=4)
-        print(f"\n Results → {os.path.abspath(filename)}")
+        print(f"\n[💾] Full results safely written to: {os.path.abspath(filename)}")
     except Exception as e:
-        print(f"\n[ERR] Failed to save results: {e}")
+        print(f"\n[❌] Failed to save results: {e}")
 
-    # ── Optionally save full trial log into run_dir ───────────────────────────
+    # ── Optionally save full trial log into the same run directory ────────────
     if args.save_log:
-        log_path = os.path.join(run_dir, f"run_{run_name}.json")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        tag = f"k{args.k}_{args.dataset}_{args.attack_type}"
+        log_path = os.path.join(run_dir, f"run_{tag}_{ts}.json")
         payload = {
             "meta": {
                 "k": args.k, "dataset": args.dataset,
@@ -763,13 +776,15 @@ def main():
                 "asr_no_defense_pct": round(
                     sum(1 for r in results if r.get("ground_truth_success")) / n_total * 100, 2
                 ) if args.judge and n_total else None,
-                "timestamp": timestamp,
+                "timestamp": ts,
+                "num_compromised": num_compromised,
+                "alpha_fraction": alpha,
             },
             "trials": global_trials,
         }
         with open(log_path, "w") as f:
             json.dump(payload, f, indent=2)
-        print(f" Run log  → {log_path}")
+        print(f"[Logger] Trial log saved → {log_path}")
 
 
 if __name__ == "__main__":
